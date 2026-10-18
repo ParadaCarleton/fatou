@@ -71,23 +71,19 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://fatou.dev/in
 ## Usage
 
 ```sh
-# Format in place
 fatou format file.jl
-
-# Verify formatting without writing
-fatou format --check src/
-
-# Lint (exits non-zero if there are any findings)
-fatou lint src/
-
-# Fix lint findings in place
-fatou lint --fix file.jl
+fatou lint file.jl
 ```
 
-Configuration lives in `fatou.toml`: `[format]` sets line and indent widths,
-`[lint]` selects or ignores rules. Fatou walks up from the file's directory to
-find one, stopping at the repository root, then falls back to `$FATOU_CONFIG`
-and to a global user config at `~/.config/fatou/fatou.toml`.
+Formatting rewrites the file in place; linting reports findings and exits
+nonzero if it finds any. See
+[Formatting](https://fatou.dev/guide/formatting.html) for directory runs,
+checks, and preservation verification, and
+[Linting](https://fatou.dev/guide/linting.html) for rule selection, fixes, and
+suppressions.
+
+Put shared settings in `fatou.toml`; the [configuration
+guide](https://fatou.dev/guide/configuration.html) explains setup and discovery.
 
 ## Editor Integration
 
@@ -129,43 +125,21 @@ guide](https://fatou.dev/guide/editors.html#zed) for configuration.
 ## Integrations
 
 Format Julia files with [dprint](https://dprint.dev) using
-[`dprint-plugin-fatou`](https://github.com/jolars/dprint-plugin-fatou):
-
-```sh
-dprint config add jolars/fatou
-dprint fmt
-```
-
-The plugin bundles the formatter and uses the `fatou` settings in `dprint.json`.
-See the [integrations guide](https://fatou.dev/guide/integrations.html#dprint)
-for setup, configuration, and updates.
+[`dprint-plugin-fatou`](https://github.com/jolars/dprint-plugin-fatou). The
+plugin bundles the formatter and uses the `fatou` settings in `dprint.json`. See
+the [integrations guide](https://fatou.dev/guide/integrations.html#dprint) for
+setup, configuration, and updates.
 
 Run format and lint checks in GitHub Actions with
 [fatou-action](https://github.com/jolars/fatou-action), which installs a
-prebuilt, checksum- and provenance-verified binary:
-
-```yaml
-- uses: jolars/fatou-action@v1
-```
-
-See the [GitHub Actions
+prebuilt, checksum- and provenance-verified binary. See the [GitHub Actions
 guide](https://fatou.dev/guide/integrations.html#github-actions) for a complete
 workflow and configuration options.
 
 Run Fatou through [pre-commit](https://pre-commit.com) hooks with
-[fatou-pre-commit](https://github.com/jolars/fatou-pre-commit):
-
-```yaml
-repos:
-  - repo: https://github.com/jolars/fatou-pre-commit
-    rev: v0.23.0
-    hooks:
-      - id: fatou-lint
-      - id: fatou-format
-```
-
-See the [pre-commit guide](https://fatou.dev/guide/integrations.html#pre-commit)
-for installation, autofixes, and updates.
+[fatou-pre-commit](https://github.com/jolars/fatou-pre-commit). See the
+[pre-commit guide](https://fatou.dev/guide/integrations.html#pre-commit) for
+installation, autofixes, and updates.
 
 ## Library Crates
 

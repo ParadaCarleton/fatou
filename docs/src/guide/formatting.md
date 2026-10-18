@@ -74,5 +74,5 @@ For a single run, use `fatou format --line-width 100 src/example.jl`. The
 style, and the [configuration reference](../reference/configuration.md) lists
 all options and defaults.
 
-Formatting lays out code. To apply lint fixes as well, run `fatou lint --fix .`
-before `fatou format .`; see [Linting](linting.md#apply-fixes).
+To apply lint fixes before formatting, follow the [fix-and-format
+workflow](linting.md#apply-fixes).

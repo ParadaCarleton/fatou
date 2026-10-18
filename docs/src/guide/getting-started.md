@@ -121,50 +121,23 @@ The binary is written to `target/release/fatou`.
 
 To format Julia files with dprint, add the [Fatou dprint
 plugin](integrations.md#dprint). It bundles the formatter and requires neither
-Julia nor the Fatou CLI:
-
-```bash
-dprint config add jolars/fatou
-```
+Julia nor the Fatou CLI. Follow the linked recipe for setup and configuration.
 
 ## First Run
 
-Format a file in place:
+Format a file in place, then check it for lint findings:
 
 ```bash
 fatou format file.jl
-```
-
-Check formatting without writing changes (prints a diff, exits non-zero if any
-file would change):
-
-```bash
-fatou format --check file.jl
-```
-
-To make formatting fail unless Fatou can verify that the parsed program and
-comments are preserved, opt in with `--safe`. A multi-file safe run checks the
-whole batch before writing any file:
-
-```bash
-fatou format --safe file.jl
-fatou format --safe --check src
-```
-
-Lint a file; exits non-zero if there are any findings:
-
-```bash
 fatou lint file.jl
 ```
 
-Run the language server over stdio (for editor integration):
+Lint findings cause a nonzero exit status. To apply fixes, follow the
+[fix-and-format workflow](linting.md#apply-fixes).
 
-```bash
-fatou lsp
-```
-
-Continue with [Formatting](formatting.md), [Linting](linting.md), or
-[Configuration](configuration.md) for day-to-day use. See [Editor
-Setup](editors.md) for your editor, [Integrations](integrations.md) for
-automation, and the [CLI Reference](../reference/cli.md) for all commands and
-options.
+Continue with [Formatting](formatting.md) for directory runs, checks without
+writing, and preservation verification, or [Linting](linting.md) for rule
+selection and suppressions. Use [Configuration](configuration.md) to share
+project settings, [Editor Setup](editors.md) to connect the language server, and
+[Integrations](integrations.md) to automate checks. The [CLI
+Reference](../reference/cli.md) lists all commands and options.

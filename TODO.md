@@ -260,6 +260,6 @@ style remains project policy rather than language correctness.
 - [ ] Split `docs/src/guide/editors.md` into focused editor recipes and a short
   overview, separating capability lookup from setup instructions. Preserve
   published URLs and anchors.
-- [ ] Reduce duplicated usage examples across `README.md`, Getting Started,
+- [x] Reduce duplicated usage examples across `README.md`, Getting Started,
   Formatting, and Linting. Keep introductory examples short and link to the
   detailed workflow instead of maintaining multiple explanations.
