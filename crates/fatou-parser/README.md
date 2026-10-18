@@ -20,6 +20,15 @@ assert!(output.diagnostics.is_empty());
 assert_eq!(output.cst.text().to_string(), "f(x) = x + 1\n");
 ```
 
+`parser::reparse` tries token, nested-block, and top-level statement splices in
+that order; `ReparseTier::Block` identifies a nested body splice. Block
+fragments retain the owner's grammar context, including module `public`
+declarations and struct fields. Block bodies reset enclosing bracket markers,
+while indexing expressions inside them still parse `begin` and `end` normally.
+Edits at body edges or in constructs with parser recovery fall back to an
+enclosing tier or a full parse. Every successful splice preserves the tree and
+diagnostics of `parse(edited_text)`.
+
 Typed AST navigation is available through `fatou_parser::ast`. Its
 `DocAttachment` view recognizes Julia's ordinary docstrings and exact
 two-argument `@doc` calls. Standard ordinary and `raw` string payloads can be

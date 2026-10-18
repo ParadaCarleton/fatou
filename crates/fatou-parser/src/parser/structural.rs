@@ -1973,6 +1973,49 @@ fn run_module_block(
     run_block_inner(ctx, events, start, terminators, true, true, diagnostics)
 }
 
+/// Block bodies reset expression context, including bracket `begin`/`end`
+/// markers. Select the actual body driver rather than treating the fragment
+/// as top-level Julia, where `public` and semicolons have different meanings.
+pub(super) fn run_block_fragment(
+    tokens: &[Token],
+    events: &mut Vec<Event>,
+    owner: SyntaxKind,
+    diagnostics: &mut Vec<ParseDiagnostic>,
+) -> Option<usize> {
+    let ctx = ParserCtx::new(tokens);
+    // Any escaping clause keyword invalidates an interior fragment, even when
+    // that keyword would be recovered as junk by another kind of owner.
+    let terminators = &[
+        TokKind::EndKw,
+        TokKind::ElseifKw,
+        TokKind::ElseKw,
+        TokKind::CatchKw,
+        TokKind::FinallyKw,
+    ];
+    let end = match owner {
+        SyntaxKind::MODULE_DEF => run_module_block(&ctx, events, 0, terminators, diagnostics),
+        SyntaxKind::BEGIN_EXPR | SyntaxKind::QUOTE_EXPR | SyntaxKind::TYPEGROUP_DEF => {
+            run_doc_block(&ctx, events, 0, terminators, diagnostics)
+        }
+        SyntaxKind::IF_EXPR | SyntaxKind::ELSEIF_CLAUSE => {
+            run_block(&ctx, events, 0, terminators, diagnostics)
+        }
+        SyntaxKind::TRY_EXPR => run_block(&ctx, events, 0, terminators, diagnostics),
+        SyntaxKind::FUNCTION_DEF
+        | SyntaxKind::MACRO_DEF
+        | SyntaxKind::WHILE_EXPR
+        | SyntaxKind::FOR_EXPR
+        | SyntaxKind::LET_EXPR
+        | SyntaxKind::STRUCT_DEF
+        | SyntaxKind::DO_EXPR
+        | SyntaxKind::ELSE_CLAUSE
+        | SyntaxKind::CATCH_CLAUSE
+        | SyntaxKind::FINALLY_CLAUSE => run_block(&ctx, events, 0, terminators, diagnostics),
+        _ => return None,
+    };
+    Some(end)
+}
+
 fn run_block_inner(
     ctx: &ParserCtx<'_>,
     events: &mut Vec<Event>,

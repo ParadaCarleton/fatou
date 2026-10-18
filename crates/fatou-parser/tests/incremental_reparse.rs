@@ -166,6 +166,10 @@ fn check_snippet_chains(src: &str, seed: u64) {
 /// trailing-operator continuation, toplevel-contextual forms, error
 /// recovery on junk and unterminated literals).
 const HAZARD_SNIPPETS: &[&str] = &[
+    "module M\npublic a\nx = 1\npublic b\nend\n",
+    "function f()\na = 1\nx = A[end - 1]; y = A[begin]\nb = 3\nend\n",
+    "struct S\na\nconst b\nc\nend\n",
+    "a[(if c\nx = 1\ny = 2\nz = 3\nend)]\n",
     // Docstring + declaration: fold_docstrings is cross-statement.
     "\"\"\"\ndoc\n\"\"\"\nfunction f(x)\n    x\nend\n",
     // Triple, raw, and prefixed strings, with interpolation.
@@ -262,6 +266,109 @@ fn assert_not_token_tier(src: &str, range: std::ops::Range<usize>, insert: &str)
             ReparseTier::Token,
             "token tier must not splice {range:?} {insert:?} on {src:?}"
         );
+    }
+}
+
+#[test]
+fn block_tier_preserves_statement_context() {
+    for (src, needle, replacement) in [
+        (
+            "module M\na = 1\npublic x\nb = 3\nend\n",
+            "public x",
+            "public x, y",
+        ),
+        ("function f()\na = 1\nx = 2; y = 3\nb = 4\nend\n", "2", "20"),
+        ("struct S\na\nconst b\nc\nend\n", "const b", "const b::Int"),
+        ("begin\na = 1\n\"doc\" f\nb = 3\nend\n", "f", "g()"),
+        ("quote\na = 1\nx = 2\nb = 3\nend\n", "2", "2 + 3"),
+        (
+            "a[(if c\nx = 1\ny = A[end - begin]\nz = 3\nend)]\n",
+            "y = A[end - begin]",
+            "y = A[end - 1]",
+        ),
+        (
+            "try\na = 1\nx = 2\nb = 3\ncatch e\na = 4\nx = 5\nb = 6\nend\n",
+            "5",
+            "50",
+        ),
+    ] {
+        let start = src.find(needle).unwrap();
+        let rep = try_reparse(src, start..start + needle.len(), replacement)
+            .unwrap_or_else(|| panic!("block tier should handle {needle:?} on {src:?}"));
+        assert_eq!(rep.tier, ReparseTier::Block, "{src}");
+    }
+}
+
+#[test]
+fn block_tier_oracle_in_nested_contexts() {
+    for (index, body) in HAZARD_SNIPPETS.iter().enumerate() {
+        for (owner, prefix, suffix) in [
+            (0, "module M\n", "end\n"),
+            (1, "function f()\n", "end\n"),
+            (2, "A[(if c\n", "end)]\n"),
+            (3, "struct S\n", "end\n"),
+        ] {
+            let src = format!("{prefix}before = 1\n{body}\nafter = 2\n{suffix}");
+            let seed = 10_000 + index as u64 * 4 + owner;
+            check_snippet(&src, seed);
+            check_snippet_chains(&src, seed);
+        }
+    }
+}
+
+#[test]
+fn block_tier_shares_siblings_and_reports_chained_edits() {
+    let src = "module M\nfunction f()\na = 1\nx = 2\nb = 3\nend\nend\n";
+    let base = parse(src);
+    let green = base.cst.green().to_owned();
+    let at = src.find("2").unwrap();
+    let edits = [
+        Edit {
+            range: at..at + 1,
+            insert: "20".into(),
+        },
+        Edit {
+            range: at + 2..at + 2,
+            insert: " + 1".into(),
+        },
+    ];
+    let text = apply_edits(src, &edits);
+    let rep = reparse_edits(src, &green, &base.diagnostics, &edits, &text).unwrap();
+    assert_eq!(rep.tier, ReparseTier::Block);
+    let output = SyntaxNode::new_root(rep.green);
+    for name in ["a = 1", "b = 3"] {
+        let old = base.cst.descendants().find(|n| n.text() == name).unwrap();
+        let new = output.descendants().find(|n| n.text() == name).unwrap();
+        assert!(std::ptr::eq(old.green(), new.green()));
+    }
+}
+
+#[test]
+fn block_tier_rejects_escaping_syntax() {
+    let src = "module M\nfunction f()\na = 1\nx = 2\nb = 3\nend\nend\n";
+    let at = src.find("x = 2").unwrap();
+    for insert in ["end", "else", "catch e", "finally", "\"", "#=", "f(", "a +"] {
+        let rep = try_reparse(src, at..at + 5, insert);
+        assert_ne!(rep.map(|r| r.tier), Some(ReparseTier::Block), "{insert}");
+    }
+}
+
+#[test]
+fn block_tier_splices_each_diagnostic_stream() {
+    let src =
+        "module M\nconst before\nfunction f()\na = 1\nx = 2\nb = 3\nend\nexport (a, b)\nend\n";
+    let at = src.find("x = 2").unwrap();
+    for insert in [
+        "const x",
+        "export (x, y)",
+        "1e999",
+        "function bare\n1\nend",
+        "try\n1\ncatch e + 1\n2\nend",
+        "try\n1\nend",
+        "f (x)",
+    ] {
+        let rep = try_reparse(src, at..at + 5, insert).unwrap();
+        assert_eq!(rep.tier, ReparseTier::Block, "{insert}");
     }
 }
 
@@ -560,5 +667,8 @@ fn oracle_corpus() {
         let src = fs::read_to_string(path).expect("read input.jl");
         check_snippet(&src, 1000 + i as u64);
         check_snippet_chains(&src, 1000 + i as u64);
+        let nested = format!("module M\nbefore = 1\n{src}\nafter = 2\nend\n");
+        check_snippet(&nested, 20_000 + i as u64);
+        check_snippet_chains(&nested, 20_000 + i as u64);
     }
 }

@@ -2,14 +2,17 @@
 //! tree without re-lexing and re-parsing the whole file.
 //!
 //! The cheapest strategy runs first, with a full
-//! [`parse`](crate::parser::parse) as the always-correct fallback. Two tiers are
+//! [`parse`](crate::parser::parse) as the always-correct fallback. Three tiers are
 //! available:
 //! the token tier ([`reparse_token`]) relexes an edit confined to a single
 //! `Ident`, comment, or whitespace leaf in isolation and splices it into the
 //! previous green tree ([`try_splice_plain_token`]), or — for a `StringContent`
 //! leaf, whose lexing depends on the enclosing delimiter's mode — relexes the
 //! whole enclosing string literal in isolation and requires it to reproduce its
-//! own token run ([`try_splice_string_content`]); the top-level statement tier
+//! own token run ([`try_splice_string_content`]); the nested-block tier
+//! ([`reparse_block`]) reparses interior statements with the enclosing body's
+//! grammar, including module `public` declarations, docstrings, and struct
+//! fields; the top-level statement tier
 //! ([`reparse_toplevel`]) reparses the run of `ROOT` children touching the edit
 //! with the public [`parse`](crate::parser::parse) and splices the resulting
 //! children and diagnostics in place, provided the boundary guards prove the
@@ -103,6 +106,8 @@ pub fn fingerprint(node: &SyntaxNode) -> String {
 pub enum ReparseTier {
     /// A single leaf token was relexed in isolation and spliced in place.
     Token,
+    /// A run of statements inside a block was reparsed in its body context.
+    Block,
     /// A run of top-level statements was reparsed and spliced under `ROOT`.
     TopLevel,
 }
@@ -150,7 +155,7 @@ pub fn reparse(
 ///
 /// This is for the case [`diff_edit`] cannot express: when the edits are
 /// scattered, collapsing them into one spanning edit covers everything between
-/// the first and the last change and blows both tiers' guards, while replaying
+/// the first and the last change and blows the region tiers' guards, while replaying
 /// them one at a time keeps each splice small. Try this *before* the collapsed
 /// edit: a wide span is the one shape the collapsed edit can never answer, so
 /// offering it first is the difference between a hit and a
@@ -244,7 +249,7 @@ fn assert_matches_full_parse(result: &Reparsed, new_text: &str) {
 #[cfg(not(debug_assertions))]
 fn assert_matches_full_parse(_result: &Reparsed, _new_text: &str) {}
 
-/// Whether `edit`'s range is a well-formed byte range of `text`. Both tiers
+/// Whether `edit`'s range is a well-formed byte range of `text`. All tiers
 /// slice `prev_text` at the edit's offsets, so an edit that does not fit is a
 /// panic rather than a miss.
 fn fits(text: &str, edit: &Edit) -> bool {
@@ -263,6 +268,7 @@ fn reparse_impl(
     new_text: &str,
 ) -> Option<Reparsed> {
     reparse_token(prev_text, prev_green, prev_diags, edit)
+        .or_else(|| reparse_block(prev_text, prev_green, prev_diags, edit, new_text))
         .or_else(|| reparse_toplevel(prev_text, prev_green, prev_diags, edit, new_text))
 }
 
@@ -683,7 +689,7 @@ fn region_is_too_wide(region_len: usize, text_len: usize) -> bool {
     region_len > REGION_ALWAYS_TRY_BYTES && region_len > text_len / REGION_MAX_FILE_DIVISOR
 }
 
-/// The reparse region at the top-level tier: a contiguous run of `ROOT`
+/// The reparse region at either statement tier: a contiguous run of container
 /// children (statement nodes and loose trivia tokens both), identified by
 /// child index and old-text byte range. The boundary child kinds
 /// disambiguate zero-width diagnostics anchored exactly on a boundary.
@@ -696,7 +702,7 @@ struct Region {
     last_is_node: bool,
 }
 
-/// Select the contiguous run of `ROOT` children whose closed range touches
+/// Select the contiguous run of container children whose closed range touches
 /// the edit. Closed-interval touch makes boundary insertions extend into the
 /// neighbor they abut (blank-line typing selects the surrounding newline
 /// tokens; deleting a newline pulls in both neighbor statements). A
@@ -735,7 +741,7 @@ fn select_region(root: &SyntaxNode, edit: &Edit) -> Option<Region> {
     })
 }
 
-/// The nearest positive-width `ROOT` child nodes outside the region. Trivia
+/// The nearest positive-width container child nodes outside the region. Trivia
 /// tokens are gap material, and a zero-width `ERROR` node contributes no text
 /// (taking one as the forward neighbor would make the boundary guard
 /// vacuous), so both are skipped.
@@ -754,7 +760,7 @@ fn sibling_nodes(root: &SyntaxNode, region: &Region) -> (Option<SyntaxNode>, Opt
     (prev, next)
 }
 
-/// Whether no `ROOT` child (node or loose token) of `cst` straddles `seam`.
+/// Whether no container child (node or loose token) of `cst` straddles `seam`.
 /// Children tile the text, so no-straddle is equivalent to a boundary
 /// existing exactly at the seam: the two sides parse independently. A
 /// straddling node is a cross-boundary statement (trailing-operator
@@ -894,7 +900,89 @@ fn reparse_toplevel(
     new_text: &str,
 ) -> Option<Reparsed> {
     let root = SyntaxNode::new_root(prev_green.clone());
-    let region = select_region(&root, edit)?;
+    reparse_statements(prev_text, prev_diags, edit, new_text, &root, None)
+}
+
+fn reparse_block(
+    prev_text: &str,
+    prev_green: &GreenNode,
+    prev_diags: &[ParseDiagnostic],
+    edit: &Edit,
+    new_text: &str,
+) -> Option<Reparsed> {
+    let root = SyntaxNode::new_root(prev_green.clone());
+    let range = TextRange::new(
+        TextSize::try_from(edit.range.start).ok()?,
+        TextSize::try_from(edit.range.end).ok()?,
+    );
+    let covering = root.covering_element(range);
+    let node = match covering {
+        rowan::NodeOrToken::Node(node) => node,
+        rowan::NodeOrToken::Token(token) => token.parent()?,
+    };
+    // Recovery in an enclosing construct can emit a diagnostic anchored
+    // before this region *after* its children. The positional stream splice
+    // cannot reproduce that ordering, so leave damaged constructs to the
+    // enclosing-statement tier.
+    let statement = node
+        .ancestors()
+        .find(|n| n.parent().is_some_and(|p| p.kind() == SyntaxKind::ROOT))?;
+    let extent = statement.text_range();
+    if prev_diags.iter().any(|d| {
+        d.kind.stream() == 0
+            && d.start >= usize::from(extent.start())
+            && d.start <= usize::from(extent.end())
+    }) {
+        return None;
+    }
+    for block in node.ancestors().filter(|n| n.kind() == SyntaxKind::BLOCK) {
+        let owner = block.parent()?.kind();
+        if let Some(result) =
+            reparse_statements(prev_text, prev_diags, edit, new_text, &block, Some(owner))
+        {
+            return Some(result);
+        }
+    }
+    None
+}
+
+/// Share seam and diagnostic checks between root statements and nested bodies.
+/// A nested run needs untouched statements on both sides: this keeps the owner
+/// header, clause terminators, and body-dependent signature flags unchanged.
+fn reparse_statements(
+    prev_text: &str,
+    prev_diags: &[ParseDiagnostic],
+    edit: &Edit,
+    new_text: &str,
+    root: &SyntaxNode,
+    owner: Option<SyntaxKind>,
+) -> Option<Reparsed> {
+    let parse_fragment = |text: &str| match owner {
+        Some(kind) => super::core::parse_block_fragment(text, kind),
+        None => Some(crate::parser::parse(text)),
+    };
+    let selection;
+    let edit_region = if owner.is_some() {
+        // A semicolon separates block statements without wrapping them in a
+        // top-level semicolon node. Include their whole physical line so the
+        // existing newline decoupling guards can bound the run.
+        let start = usize::from(root.text_range().start());
+        let end = usize::from(root.text_range().end());
+        let line_start = prev_text[start..edit.range.start]
+            .rfind('\n')
+            .map_or(start, |at| start + at + 1);
+        let line_end = prev_text[edit.range.end..end]
+            .find('\n')
+            .map_or(end, |at| edit.range.end + at);
+        selection = Edit {
+            range: line_start..line_end,
+            insert: String::new(),
+        };
+        &selection
+    } else {
+        edit
+    };
+    let region = select_region(root, edit_region)?;
     if region_is_too_wide(region.end - region.start, prev_text.len()) {
         return None;
     }
@@ -902,8 +990,31 @@ fn reparse_toplevel(
     let frag_end = (region.end as isize + delta) as usize;
     let fragment = &new_text[region.start..frag_end];
 
-    let frag = crate::parser::parse(fragment);
-    let (prev_node, next_node) = sibling_nodes(&root, &region);
+    let (prev_node, next_node) = sibling_nodes(root, &region);
+    if owner.is_some() {
+        // Interior neighbors bound both seams without reparsing the owner's
+        // header or closing clause. Edge edits climb to an enclosing tier.
+        prev_node.as_ref()?;
+        next_node.as_ref()?;
+        let old = parse_fragment(&prev_text[region.start..region.end])?;
+        let expected: Vec<_> = root
+            .green()
+            .children()
+            .skip(region.first)
+            .take(region.last + 1 - region.first)
+            .map(|child| child.to_owned())
+            .collect();
+        let actual: Vec<_> = old
+            .cst
+            .green()
+            .children()
+            .map(|child| child.to_owned())
+            .collect();
+        if expected != actual {
+            return None;
+        }
+    }
+    let frag = parse_fragment(fragment)?;
 
     let positive_nodes = |node: &SyntaxNode| {
         node.children_with_tokens()
@@ -996,7 +1107,7 @@ fn reparse_toplevel(
         );
         let back_seam = usize::from(prev.text_range().len()) + back_gap.len();
         let fwd_seam = back_seam + fragment.len();
-        let parsed = crate::parser::parse(&guard);
+        let parsed = parse_fragment(&guard)?;
         if !no_straddle(&parsed.cst, back_seam) || !no_straddle(&parsed.cst, fwd_seam) {
             return None;
         }
@@ -1025,7 +1136,7 @@ fn reparse_toplevel(
         let back_gap = &prev_text[usize::from(prev.text_range().end())..region.start];
         let guard = format!("{}{}{}", prev.text(), back_gap, fragment);
         let seam = guard.len() - fragment.len();
-        let parsed = crate::parser::parse(&guard);
+        let parsed = parse_fragment(&guard)?;
         if !no_straddle(&parsed.cst, seam) {
             return None;
         }
@@ -1063,12 +1174,12 @@ fn reparse_toplevel(
             let gap = &prev_text[region.end..usize::from(next.text_range().start())];
             format!("{}{}", gap, next.text())
         }
-        None => prev_text[region.end..].to_string(),
+        None => prev_text[region.end..usize::from(root.text_range().end())].to_string(),
     };
     if !tail.is_empty() {
         let guard = format!("{fragment}{tail}");
         let seam = fragment.len();
-        let parsed = crate::parser::parse(&guard);
+        let parsed = parse_fragment(&guard)?;
         if !no_straddle(&parsed.cst, seam) {
             return None;
         }
@@ -1130,14 +1241,18 @@ fn reparse_toplevel(
     let diagnostics = splice_diagnostics(prev_diags, &frag.diagnostics, &region, delta)?;
 
     let frag_green = frag.cst.green();
-    let green = prev_green.splice_children(
+    let green = root.green().splice_children(
         region.first..=region.last,
         frag_green.children().map(|c| c.to_owned()),
     );
     Some(Reparsed {
-        green,
+        green: root.replace_with(green),
         diagnostics,
-        tier: ReparseTier::TopLevel,
+        tier: if owner.is_some() {
+            ReparseTier::Block
+        } else {
+            ReparseTier::TopLevel
+        },
     })
 }
 

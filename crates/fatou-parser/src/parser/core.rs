@@ -195,9 +195,34 @@ pub fn parse(text: &str) -> ParseOutput {
         }
     }
 
-    let events = fold_docstrings(&events, &tokens);
+    finish_parse(&tokens, &events, diagnostics)
+}
 
-    let cst = build_tree(&tokens, &events);
+/// Reparse statements using the same body driver as their enclosing construct.
+/// Keeping the owner in the temporary tree lets the flag passes recognize
+/// context-sensitive forms such as a struct's bare `const` fields.
+pub(super) fn parse_block_fragment(text: &str, owner: SyntaxKind) -> Option<ParseOutput> {
+    let tokens = lex(text);
+    let mut diagnostics = Vec::new();
+    let mut events = vec![Event::Start(owner)];
+    let end = super::structural::run_block_fragment(&tokens, &mut events, owner, &mut diagnostics)?;
+    if end != tokens.len() {
+        return None;
+    }
+    events.push(Event::Finish);
+    let mut output = finish_parse(&tokens, &events, diagnostics);
+    output.cst = output.cst.first_child()?.first_child()?;
+    Some(output)
+}
+
+fn finish_parse(
+    tokens: &[Token],
+    events: &[Event],
+    mut diagnostics: Vec<ParseDiagnostic>,
+) -> ParseOutput {
+    let events = fold_docstrings(events, tokens);
+
+    let cst = build_tree(tokens, &events);
     // The post-build flag passes. Each walks the finished CST for a shape
     // JuliaSyntax error-wraps and records a *zero-width point* diagnostic at the
     // offending node's start; the projector reconstructs the error wrapper from

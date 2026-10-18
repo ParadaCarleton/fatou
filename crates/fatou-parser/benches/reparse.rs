@@ -1,11 +1,12 @@
 //! What incremental reparse actually buys, measured against a full parse.
 //!
-//! Seven scenarios over one ~100 KB corpus file, all sharing a single base
+//! Eight scenarios over one ~100 KB corpus file, all sharing a single base
 //! parse done in setup:
 //!
 //! | bench                     | what it costs                                  |
 //! |---------------------------|------------------------------------------------|
 //! | `full_parse`              | the baseline every other row is judged by      |
+//! | `nested_block_edit`       | a numeric edit inside a function in a module  |
 //! | `token_keystroke`         | one char typed into an identifier (token tier) |
 //! | `docstring_keystroke`     | one char typed into a docstring (token tier)   |
 //! | `statement_edit`          | a statement added at the end (top-level tier)  |
@@ -218,11 +219,50 @@ fn bench_reparse(c: &mut Criterion) {
         return;
     };
     let base = Base::new(src);
+    let nested = Base::new(format!(
+        "module ReparseBench\n{}\nfunction reparse_probe()\nfirst = 1\nmiddle = 2\nlast = 3\nend\nend\n",
+        base.src
+    ));
+    let at = nested.src.find("middle = 2").unwrap() + "middle = ".len();
+    let nested_edit = Edit {
+        range: at..at + 1,
+        insert: "20".into(),
+    };
+    let nested_text = nested_edit.apply(&nested.src);
+    let spliced = reparse(
+        &nested.src,
+        &nested.green,
+        &nested.diagnostics,
+        &nested_edit,
+        &nested_text,
+    )
+    .expect("the nested benchmark must splice");
+    assert_eq!(spliced.tier, ReparseTier::Block);
+    assert_eq!(spliced.green, parse(&nested_text).cst.green().to_owned());
+    assert_eq!(spliced.diagnostics, parse(&nested_text).diagnostics);
     let mut group = c.benchmark_group("reparse");
     group.throughput(criterion::Throughput::Bytes(base.src.len() as u64));
 
     group.bench_function("full_parse", |b| {
         b.iter(|| black_box(parse(black_box(&base.src))));
+    });
+
+    // A structural edit under a module used to reparse the entire file.
+    group.bench_function("nested_block_edit", |b| {
+        b.iter(|| {
+            black_box(
+                match reparse(
+                    &nested.src,
+                    &nested.green,
+                    &nested.diagnostics,
+                    black_box(&nested_edit),
+                    black_box(&nested_text),
+                ) {
+                    Some(result) => result.green,
+                    None => parse(&nested_text).cst.green().to_owned(),
+                },
+            )
+        });
     });
 
     // A char typed into an identifier deep in the file.
