@@ -161,9 +161,10 @@ pub fn reparse(
 /// offering it first is the difference between a hit and a
 /// `region_is_too_wide` bail (`benches/reparse.rs`).
 ///
-/// Fewer than two edits returns `None` immediately: a single edit's span
-/// always contains [`diff_edit`]'s for the same transform, so there is nothing
-/// to gain over the caller's next step.
+/// A single edit is verified against both texts without allocating an
+/// intermediate buffer, then passed directly to [`reparse`]. This avoids
+/// recovering an already-known edit with [`diff_edit`]. An empty chain returns
+/// `None`.
 ///
 /// `edits` is not trusted: a slice that is not the exact transform from
 /// `prev_text` to `new_text` (a stale chain, a buffer that moved underneath
@@ -185,8 +186,22 @@ pub fn reparse_edits(
     edits: &[Edit],
     new_text: &str,
 ) -> Option<Reparsed> {
-    if edits.len() < 2 {
+    if edits.is_empty() {
         return None;
+    }
+    if let [edit] = edits {
+        if !fits(prev_text, edit) {
+            return None;
+        }
+        // Prove the exact transform without rebuilding the buffer or scanning
+        // for edit boundaries the caller already supplied.
+        let suffix = new_text
+            .strip_prefix(&prev_text[..edit.range.start])?
+            .strip_prefix(&edit.insert)?;
+        if suffix != &prev_text[edit.range.end..] {
+            return None;
+        }
+        return reparse(prev_text, prev_green, prev_diags, edit, new_text);
     }
 
     let mut text = prev_text.to_string();
@@ -1401,8 +1416,8 @@ mod tests {
     }
 
     /// An edit that does not fit `prev_text` is rejected rather than applied at
-    /// offsets that would panic on a slice. `reparse_edits` proves its chain
-    /// with `try_apply_edits`; the single-edit entry point has to check too.
+    /// offsets that would panic on a slice. `reparse_edits` checks its edits
+    /// before slicing; the single-edit entry point has to check too.
     #[test]
     fn reparse_rejects_an_edit_that_does_not_fit() {
         let old = "α = 1\n";
@@ -1529,18 +1544,67 @@ mod tests {
         assert_eq!(out.tier, ReparseTier::TopLevel);
     }
 
-    /// Fewer than two edits is always `diff_edit`'s job: its span for the same
-    /// transform is contained in the single edit's, and the caller tried it.
     #[test]
-    fn reparse_edits_declines_short_chains() {
+    fn reparse_edits_declines_an_empty_chain() {
         let old = "alpha = 1\nomega = 3\n";
         let parsed = crate::parser::parse(old);
         let green = parsed.cst.green().to_owned();
 
         assert!(reparse_edits(old, &green, &parsed.diagnostics, &[], old).is_none());
-        let one = vec![edit(5..5, "X")];
-        let new = apply_edits(old, &one);
-        assert!(reparse_edits(old, &green, &parsed.diagnostics, &one, &new).is_none());
+    }
+
+    #[test]
+    fn reparse_edits_accepts_a_single_verified_edit() {
+        let old = "alpha = 1\nfiller = 2\nomega = 3\n";
+        let parsed = crate::parser::parse(old);
+        let green = parsed.cst.green().to_owned();
+        for change in [
+            edit(5..5, "β"),
+            edit(0..5, "β"),
+            edit(4..5, ""),
+            edit(0..0, "beta = 4\n"),
+            edit(old.len()..old.len(), "beta = 4\n"),
+        ] {
+            let new = change.apply(old);
+            let out = reparse_edits(old, &green, &parsed.diagnostics, &[change], &new)
+                .expect("a single verified edit should reparse");
+            let full = crate::parser::parse(&new);
+            let root = SyntaxNode::new_root(out.green);
+            assert_eq!(root.to_string(), new);
+            assert_eq!(fingerprint(&root), fingerprint(&full.cst));
+            assert_eq!(out.diagnostics, full.diagnostics);
+        }
+    }
+
+    #[test]
+    fn reparse_edits_rejects_a_stale_or_invalid_single_edit() {
+        let old = "α = 1\nomega = 3\n";
+        let parsed = crate::parser::parse(old);
+        let green = parsed.cst.green().to_owned();
+        for (change, actual) in [
+            (edit(2..2, "X"), "βX = 1\nomega = 3\n"),
+            (edit(2..2, "X"), "αY = 1\nomega = 3\n"),
+            (edit(2..2, "X"), "αX = 1\nomega = 4\n"),
+            (edit(2..2, "X"), ""),
+            (edit(2..2, "X"), "α"),
+            (edit(2..2, "X"), "αX"),
+            (edit(500..500, "X"), old),
+            (edit(std::ops::Range { start: 2, end: 1 }, "X"), old),
+            (edit(1..2, "X"), old),
+            (edit(0..1, "X"), old),
+        ] {
+            assert!(
+                reparse_edits(
+                    old,
+                    &green,
+                    &parsed.diagnostics,
+                    std::slice::from_ref(&change),
+                    actual,
+                )
+                .is_none(),
+                "must reject {change:?} targeting {actual:?}"
+            );
+        }
     }
 
     /// A chain that is not the exact transform between the two texts is
