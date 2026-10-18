@@ -98,7 +98,7 @@ To use a shared `fatou.toml` outside your projects, add this to your user
 Run **Fatou: Restart Server** after changing this setting or editing the shared
 file. Project configs take precedence, and the files are never merged. Use an
 absolute path; an unset or empty value uses the normal user config location. See
-[User-Wide Defaults](configuration.md#user-wide-defaults) for the full
+the [configuration guide](configuration.md#resolution-order) for the full
 resolution order and error behavior.
 
 ### Using Only Some Features

@@ -36,7 +36,7 @@ By default, the action runs `fatou format --check` and `fatou lint` from the
 repository root. It checks `.jl` files without changing them; formatting
 differences or lint findings fail the check. Directory walks honor `.gitignore`
 and the exclusions in `fatou.toml`. It uses the same [configuration
-discovery](configuration.md#where-fatou-looks-for-a-config) as the CLI.
+discovery](configuration.md#resolution-order) as the CLI.
 
 The action's `@v1` tag selects the action version; the `version` input selects
 the Fatou CLI version. Keep the latter aligned with your pre-commit revision and

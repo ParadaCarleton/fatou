@@ -1,19 +1,32 @@
 # Configuration Reference
 
-This page lists key accepted in `fatou.toml`. All keys are optional and omitting
-a key uses its default. Unknown keys are rejected with an error.
+This page lists the keys accepted in `fatou.toml`. All keys are optional and
+omitting a key uses its default. Unknown keys are rejected with an error.
 
 `FATOU_CONFIG` and global config files use this same schema. For a task-oriented
-walkthrough, see the [configuration guide](../guide/configuration.md). A
-machine-readable [JSON Schema](https://fatou.dev/fatou.schema.json) is also
-available for editor completion and validation.
+walkthrough, including [configuration
+resolution](../guide/configuration.md#resolution-order) and [user-wide
+defaults](../guide/configuration.md#user-wide-defaults), see the [configuration
+guide](../guide/configuration.md). A machine-readable [JSON
+Schema](https://fatou.dev/fatou.schema.json) is also available for editor
+completion and validation.
 
-Set `FATOU_CONFIG` to a custom user config path. Fatou uses it when no project
-`fatou.toml` is found, before checking the platform's user config directory. An
-unset or empty value uses the normal user config location. Relative paths
-resolve from the process's working directory. In VS Code, set it through
-`fatou.serverEnv` and run **Fatou: Restart Server**; see [User-Wide
-Defaults](../guide/configuration.md#user-wide-defaults) for an example.
+## Extending another config
+
+`extend` resolves relative to the file that declares it. Absolute paths and `~/`
+paths also work. Chains may cross a repository's `.git` boundary. Missing files
+and inheritance cycles are configuration errors. See the
+[guide](../guide/configuration.md#extending-another-config) for a shared-config
+recipe.
+
+Sections merge key by key. Values in the extending file win, including lists
+such as `exclude`, `select`, and `ignore`. `extend-exclude` and `extend-select`
+lists accumulate across the chain, with inherited entries first.
+
+Inherited `[project] entry-points` remain relative to the file that declares
+them. Exclude patterns in an inherited file apply relative to the extending
+config's directory, or to the working or document directory for an environment
+or global config. See [top-level keys](#top-level-keys) for exclusion behavior.
 
 ## Top-level keys
 
@@ -23,20 +36,20 @@ Defaults](../guide/configuration.md#user-wide-defaults) for an example.
   | `exclude`        | array of strings | `[]`    | Patterns to exclude from file discovery.    |
   | `extend-exclude` | array of strings | `[]`    | Additional patterns, appended to `exclude`. |
 
-`exclude` and `extend-exclude` take gitignore-style patterns, resolved relative
-to the directory containing `fatou.toml` (or, for a `FATOU_CONFIG` or global
-config, the working directory). Excluded directories are pruned during
-discovery.
+`exclude` and `extend-exclude` take gitignore-style patterns. `extend-exclude`
+adds to the `exclude` list. Patterns resolve relative to the directory
+containing the selected project or explicit config. For a `FATOU_CONFIG` or
+global config, they resolve relative to the working directory on the command
+line or the document's directory in the language server, rather than the config
+file's own directory. Excluded directories are pruned during discovery.
 
-`extend` resolves relative to the file that declares it. Absolute paths and `~/`
-paths also work. The extending file overrides inherited values, while tables
-merge by key. `extend-exclude` and `extend-select` accumulate across the chain.
-Missing files and cycles are errors. See [Extending Another
-Config](../guide/configuration.md#extending-another-config).
+See [Extending another config](#extending-another-config) for path resolution
+and merge behavior for `extend`.
 
 Files named explicitly on the command line are processed even when they match a
 pattern, unless `--force-exclude` is passed. Extra patterns can be added per run
-with `--exclude` on `fatou format` and `fatou lint`.
+with `--exclude` on `fatou format` and `fatou lint`. `--force-exclude` is useful
+for runners such as pre-commit, which pass staged files as explicit arguments.
 
 ```toml
 exclude = ["vendored/"]
@@ -90,6 +103,8 @@ Missing or unreadable static include targets produce errors at their include
 calls, including empty paths and directory targets. The CLI reports errors in
 the files selected for linting. The language server also reports include errors
 in unopened dependencies and clears them when the include is repaired.
+Undefined-name checking resumes when the entry point's dependencies can be
+analyzed again.
 
 The language server uses unsaved buffers and refreshes dependent diagnostics
 after edits, closes, and watched file changes. Script contexts currently support
@@ -138,9 +153,9 @@ line-ending = "auto"
   | `severity`      | table            | `{}`    | Per-rule severity overrides.                                  |
   | `rules`         | table            | `{}`    | Per-rule option tables.                                       |
 
-See the [rule reference](rules.md) for the available rule IDs. An unrecognized
-ID in `select`, `extend-select`, `ignore`, or `severity` is a warning, not an
-error.
+By default most rules run; the [rule reference](rules.md) lists the opt-in rules
+and all available rule IDs. An unrecognized ID in `select`, `extend-select`,
+`ignore`, or `severity` is a warning, not an error.
 
 Fatou starts with the defaults, or `select` when set, adds `extend-select`, and
 then removes rules in `ignore`. Repeated IDs do not run a rule more than once.

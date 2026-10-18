@@ -69,11 +69,8 @@ For a given file, Fatou walks up from the file's directory through its
 ancestors, and uses the first `fatou.toml` it finds. The usual layout is a
 single `fatou.toml` beside `.git` at the root of the project.
 
-The walk stops at the repository root, so a `fatou.toml` parked above your
-repository never governs the project inside it. The root itself is searched, and
-a worktree or submodule checkout, whose `.git` is a file rather than a
-directory, bounds the walk the same way. A directory with no `.git` ancestor
-keeps walking to the filesystem root.
+The search stops at the repository root. See the full [resolution
+order](#resolution-order) below for discovery rules and fallback paths.
 
 ### User-Wide Defaults
 
@@ -82,11 +79,10 @@ your repositories; use a global config instead. When no project `fatou.toml` is
 found, Fatou looks for one in your user config directory, typically
 `~/.config/fatou/fatou.toml`.
 
-To keep a config on a synced drive and point every machine at it, set the
-`FATOU_CONFIG` environment variable to its path. A non-empty `FATOU_CONFIG`
-shadows the global config entirely. An unset or empty value uses the normal user
-config location. Relative paths resolve from the process's working directory;
-use an absolute path in editor settings.
+To use a config on a synced drive, set `FATOU_CONFIG` to its absolute path. A
+non-empty value shadows the global config entirely. An unset or empty value uses
+the normal user config location. Relative paths resolve from the process's
+working directory; use an absolute path in editor settings.
 
 In VS Code, add this to your user `settings.json`, then run **Fatou: Restart
 Server**:
@@ -99,15 +95,15 @@ Server**:
 }
 ```
 
+Project configs take precedence over user-wide defaults.
+
 A missing or malformed config file makes the CLI fail. The language server logs
 a configuration warning in the Fatou output channel and uses editor settings or
 built-in defaults. Fix the file and restart the server to apply it.
 
-`FATOU_CONFIG` and global configs are whole-file fallbacks. A project config
-inherits another file only when it explicitly uses `extend`. Relative `exclude`
-patterns in a `FATOU_CONFIG` or global file resolve against the working
-directory (on the command line) or the document's directory (in the language
-server) rather than the config file's own directory.
+The language server uses the same discovery rules as the CLI. It watches project
+`fatou.toml` files and files reached through `extend`. An edit to the primary
+global or `FATOU_CONFIG` file is picked up when the server restarts.
 
 ### Extending Another Config
 
@@ -121,23 +117,8 @@ extend = "../shared/fatou.toml"
 line-width = 100
 ```
 
-The path is relative to the file that declares it. Absolute paths and `~/` paths
-also work. Chains may cross a repository's `.git` boundary. A missing file or an
-inheritance cycle is a configuration error.
-
-Sections merge key by key. Values in the extending file win, including lists
-such as `exclude`, `select`, and `ignore`. `extend-exclude` and `extend-select`
-lists accumulate across the chain, with inherited entries first. Inherited
-`[project] entry-points` remain relative to the file that declares them. Exclude
-patterns in an inherited file apply relative to the extending config's
-directory, or to the working or document directory for an environment or global
-config. The language server reloads a project config when a watched inherited
-TOML file changes.
-
-The language server uses the same resolution, so either file is a convenient way
-to set editor-wide defaults. It watches project `fatou.toml` files and files
-reached through `extend`. An edit to the primary global or `FATOU_CONFIG` file
-is picked up when the server restarts.
+The path is relative to this config file. See the reference for [inheritance and
+merge rules](../reference/configuration.md#extending-another-config).
 
 ### Bypassing Discovery
 
@@ -147,24 +128,30 @@ discovery altogether, and `--no-config` ignores every file (project,
 
 ### Resolution Order
 
-In full, Fatou uses the first source that applies:
+Fatou uses the first source that applies:
 
 1. `--config <PATH>`, which loads that file and skips discovery.
 2. `--no-config`, which ignores every file and uses the built-in defaults.
 3. The nearest `fatou.toml`, found by walking up from the file's directory. The
    walk stops at the repository root (the directory holding `.git`, whether a
-   directory or a file), inclusive; a directory with no `.git` ancestor is
-   walked to the filesystem root.
+   directory or a file), inclusive. This also bounds worktrees and submodules. A
+   directory with no `.git` ancestor is walked to the filesystem root.
 4. `$FATOU_CONFIG`, when set and non-empty. A missing or malformed file here is
    a configuration error.
-5. The global user config: the first existing file among
-   1. `$XDG_CONFIG_HOME/fatou/fatou.toml`, when that variable is set
-   2. `~/.config/fatou/fatou.toml`
-   3. the platform config directory, on macOS
-      `~/Library/Application Support/fatou/fatou.toml`
+5. The global user config: the first existing file in the platform's search
+   order below.
 6. The built-in defaults.
 
-Sources are never merged: exactly one file is used.
+Fatou selects one source without merging it with the other fallbacks. A config
+inherits another file only through an explicit `extend`.
+
+For the global config, Fatou checks these paths in order:
+
+  | Platform | First                                       | Second                       | Third                                            |
+  | -------- | ------------------------------------------- | ---------------------------- | ------------------------------------------------ |
+  | Linux    | `$XDG_CONFIG_HOME/fatou/fatou.toml`, if set | `~/.config/fatou/fatou.toml` | —                                                |
+  | macOS    | `$XDG_CONFIG_HOME/fatou/fatou.toml`, if set | `~/.config/fatou/fatou.toml` | `~/Library/Application Support/fatou/fatou.toml` |
+  | Windows  | `$XDG_CONFIG_HOME/fatou/fatou.toml`, if set | `%APPDATA%/fatou/fatou.toml` | `~/.config/fatou/fatou.toml`                     |
 
 ## Checking standalone scripts
 
@@ -193,75 +180,38 @@ Run `fatou lint .` to check the discovered Julia files. Running
 still supply resolution context. The language server also uses unsaved changes
 in included files.
 
-Fatou never executes Julia to analyze a script. Dynamic includes, `eval`,
-unresolved whole-module imports, and missing or broken dependencies can prevent
-it from proving a name undefined. Those entry points remain conservative; see
-the [project configuration reference](../reference/configuration.md#project) for
-the current limits.
-
-If you enable `undefined-name` for a file containing includes outside a known
-package or script program, Fatou reports an informational `analysis-incomplete`
-notice at the first include. It explains why checking was skipped and points to
-`entry-points`. Notices do not count as lint findings or make `fatou lint` or
-`fatou lint --fix` fail. Disabling or ignoring `undefined-name`, including with
-a file-wide suppression, also silences the notice.
-
-A static include whose target is missing or unreadable produces an error at the
-include call. This includes `include("")`, which does not name a source file.
-The language server reports these errors even in included files you have not
-opened. Undefined-name checking resumes when the entry point's dependencies can
-be analyzed again.
+Fatou never executes Julia to analyze a script. Dynamic includes and broken
+dependencies can limit undefined-name checking. See the [project
+reference](../reference/configuration.md#project) for analysis limits,
+`analysis-incomplete` notices, and missing-include errors.
 
 ## Excluding files
 
-`exclude` takes gitignore-style patterns, resolved relative to the directory
-containing `fatou.toml`. Excluded directories are pruned during discovery, so
-`fatou format src` and `fatou lint src` never descend into them.
+Keep vendored code out of directory scans:
 
 ```toml
 exclude = ["vendored/"]
 ```
 
-Use `extend-exclude` when you want to keep whatever `exclude` already lists and
-add to it, which is mostly useful when the two live in different layers of your
-setup:
-
-```toml
-extend-exclude = ["generated.jl"]
-```
-
-A file named explicitly on the command line is always processed, even if it
-matches an exclude pattern. Pass `--force-exclude` to apply the patterns to
-explicitly named files too; this is meant for runners like pre-commit, which
-invoke Fatou with the staged files as arguments. Extra patterns can also be
-supplied per run with `--exclude` on `fatou format` and `fatou lint`.
+Use `extend-exclude` to add patterns to an inherited list. Files named
+explicitly on the command line are still processed; pass `--force-exclude` to
+exclude them too. See the [top-level key
+reference](../reference/configuration.md#top-level-keys) for pattern roots and
+per-run overrides.
 
 ## Formatting
 
-The `[format]` table controls the formatter. The defaults follow common Julia
-conventions, so most projects only set a key here to depart from them:
+Set only the formatting options you want to change. For example, to allow longer
+lines and always write Unix line endings:
 
 ```toml
 [format]
-line-width = 92
-indent-width = 4
-line-ending = "auto"
+line-width = 100
+line-ending = "lf"
 ```
 
-`line-width` is the width the formatter tries to keep lines within, and
-`indent-width` is the number of spaces per indentation level. Both can be
-overridden per run with the `--line-width` and `--indent-width` flags on
-`fatou format`.
-
-`line-ending` decides the newline style. The default, `auto`, mirrors the source
-file's first line ending and falls back to `lf` when the file has none, which
-keeps mixed checkouts stable. Use `lf` or `crlf` to force one style, or `native`
-to follow the platform Fatou runs on.
-
-> **Deprecation**: the snake_case keys `line_width` and `indent_width` are still
-> accepted but print a warning. Use the kebab-case `line-width` and
-> `indent-width` instead; the snake_case forms will be removed in a future
-> release.
+See the [format reference](../reference/configuration.md#format) for defaults,
+line-ending choices, command-line overrides, and deprecated key spellings.
 
 ## Choosing Lint Rules
 
@@ -275,23 +225,9 @@ files without configuring entry points or losing unused-variable warnings:
 extend-select = ["undefined-name"]
 ```
 
-`select`, when set, replaces the default rule set. `extend-select` then adds to
-that selection, and `ignore` turns individual rules off, including rules named
-in `extend-select`:
-
-```toml
-[lint]
-select = ["unused-binding", "unused-argument"]
-extend-select = ["undefined-name"]
-ignore = ["unused-argument"]
-```
-
-On the CLI, this configuration runs `unused-binding` and `undefined-name`. An
-empty `select = []` disables the defaults, leaving only rules in `extend-select`
-that are not ignored. For workspace package files, the language server also
-enables rules that need project resolution, unless they are ignored.
-
-See the [rule reference](../reference/rules.md) for the available rule IDs.
+Use `select` to replace the defaults and `ignore` to turn individual rules off.
+See the [lint reference](../reference/configuration.md#lint) for selection
+order, empty selections, and language-server behavior.
 
 `[lint.severity]` changes how loudly a rule reports, without changing whether it
 runs. Rules you do not list keep their default severity:
@@ -317,9 +253,3 @@ extend-functions = { sleep = "use a timer instead of blocking the task" }
 
 Rules without options have no table. The [configuration
 reference](../reference/configuration.md#lintrulesid) lists the rules that do.
-
-Note that strictness here is deliberately different from `select`, `ignore`, and
-`severity`. Those are lists of IDs you typed, so an unrecognized entry is only a
-warning and the run continues. A `[lint.rules.<id>]` table is a *schema*, so a
-misspelled rule ID, or a misspelled key inside one, is a configuration parse
-error and the run stops.

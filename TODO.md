@@ -253,10 +253,10 @@ style remains project policy rather than language correctness.
 
 ## Documentation site
 
-- [ ] Shorten `docs/src/guide/configuration.md` by consolidating exhaustive
-  resolution rules and option details in `docs/src/reference/configuration.md`.
-  Retain practical project setup and standalone-script recipes in the guide,
-  and preserve existing anchors when moving content.
+- [x] Shorten `docs/src/guide/configuration.md` by consolidating option details
+  in `docs/src/reference/configuration.md`. Retain configuration resolution,
+  practical project setup, and standalone-script recipes in the guide, and
+  preserve existing anchors when moving content.
 - [ ] Split `docs/src/guide/editors.md` into focused editor recipes and a short
   overview, separating capability lookup from setup instructions. Preserve
   published URLs and anchors.
