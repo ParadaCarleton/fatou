@@ -100,37 +100,39 @@ nested brackets inside a junk run; `try x finally z else y end` (else after
 finally); `;`-segment double-`✘`; prefix `**a`/`--a` (`call-pre`, in neither
 corpus); trailing block-body junk (`function f g h end`).
 
-## Latest session (2026-09-29 — radical juxtaposition)
+## Latest session (2026-10-18 — nested-block reparse)
 
-Confirmed `a√4` against Julia 1.13.0 / JuliaSyntax 1.0.2 and `Meta.parseall`:
-it is implicit multiplication, and the trailing-token diagnostic reproduced
-before the change.
-
-- **Parser**: radical factors accept nonnumeric coefficients, including dotted
-  radicals. Unary operands stop before adjacent factors; power operands admit
-  their own products. Consecutive factors share a CST node, preserving explicit
-  parentheses. Unary precedence now exceeds rational and shift operators.
-  Whitespace, `¬`, blocks, and syntactic prefixes retain their boundaries.
-  No lexer or projector changes.
-- **Fixtures**: `radical_juxtaposition` covers the report, root variants, chains,
-  precedence, comments, containers, and macros. `radical_juxtaposition_boundary`
-  guards spacing and invalid coefficients. Both have reviewed lossless CST
-  snapshots and generated oracle projections.
-- **Counts**: JS **749/756 → 749/756** (7 divergence, 0 unsupported), dir
-  **270/271 → 272/273**. Zero oracle regressions and no new blocked entries.
-- **Validation**: workspace tests, clippy with all targets and features, and
-  rustfmt pass, including incremental oracle edits and doctests. Safe formatting
-  and idempotence pass for the valid fixture, and the
-  reported file lints cleanly. The baseline root doctest run hit a transient
-  rustdoc 1.98.1 internal compiler error resolving `toml::Spanned`; the final
-  workspace run completed successfully.
-- **Next**: trailing comma at EOF (`x = a,`, `break,`) remains the nearest
-  deferred recovery target. Labeled keywords and wrapping operators remain
-  blocked by the current oracle pin.
+- **Parser**: `ReparseTier::Block` sits between token and top-level splices.
+  The internal body-fragment entry point shares the structural body drivers
+  and finalization passes; its owner preserves module `public`, docstring,
+  semicolon, and struct-field context. Bodies reset enclosing bracket markers,
+  while indexing expressions inside them keep their normal markers.
+- **Guards**: reuse statement seam checks and diagnostic streams. Reparse the
+  old run to prove the fragment context reproduces it. Include complete physical
+  lines for semicolon-separated statements. Require untouched statements on
+  both sides; body edges and constructs with grammar-recovery diagnostics use
+  the enclosing tier or full parse. No grammar, lexer, projector, or snapshots
+  changed.
+- **Coverage**: targeted context and diagnostic-stream tests, sibling allocation
+  reuse, precise edit chains, nested hazard sweeps, and the full curated corpus
+  wrapped in a module. Every successful splice matches a fresh parse.
+- **Counts**: JS **749/756 → 749/756**, dir **272/273 → 272/273**. No oracle
+  regressions or generated corpus changes.
+- **Validation**: workspace tests, Clippy with all targets and features, and both
+  member Wasm builds pass. All 43 JuliaSyntax source files pass `debug format`.
+  Across 20 interleaved, pinned release runs, the nested-module edit is about
+  220 times faster; full parsing and token edits stay within measurement noise.
+  Rejected attempts cost about 4% more. Results are in `bench/reparse.json`.
+- **Remaining optimization**: body-edge splices need guards against the owning
+  header and clause terminator. Recovery-aware splices need to retain delayed
+  ancestor diagnostics in emission order. Both currently fall back correctly.
 
 ## Earlier sessions
 
 Newest first; one line each. Counts are `JS allowlist` / `dir allowlist` after.
+
+- **2026-09-29** — radical juxtaposition, grouping, and unary precedence, with
+  two reviewed parser/oracle fixtures. 749 / 272.
 
 - **2026-09-28** — issue #113: parenthesized macro loop arguments and
   newline-split declarations. 749 / 270.

@@ -51,10 +51,12 @@
 
 ### Incremental
 
-- [ ] Maybe (deferred): a nested-block tier needs a context-parameterized
-  fragment entry point (`public_context`, bracket `end` markers) — a bare
-  fragment `parse()` misparses those today. A pure optimization on top of a
-  sound stage 2–4.
+- [x] Add a nested-block reparse tier with a context-parameterized body
+  fragment parser. Preserve module `public` declarations, struct fields,
+  docstrings, semicolons, and bracket markers. Interior runs reuse the existing
+  seam guards; body edges and enclosing parser recovery use the existing
+  fallback tiers. Seeded edits compare trees and diagnostics with fresh parses;
+  measurements live in `bench/reparse.json`.
 
 ## Formatter
 
