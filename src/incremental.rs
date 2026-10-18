@@ -247,8 +247,8 @@ pub trait IncrementalDb: salsa::Database {
 /// Tries an incremental reparse off the previous parse of this file:
 ///
 /// 1. the precise chain the language server staged from the client's
-///    `didChange` batches, offered to [`reparse_edits`]. Declines below two
-///    edits, where it has nothing to add over the next step;
+///    `didChange` batches, offered to [`reparse_edits`]. A single verified edit
+///    goes straight to [`reparse`], avoiding whole-text diff recovery;
 /// 2. failing that, a single edit recovered by [`diff_edit`] from the two whole
 ///    texts, offered to [`reparse`]. This is the only route for a text that
 ///    changed by some path carrying no edits at all (a disk revert, the CLI);

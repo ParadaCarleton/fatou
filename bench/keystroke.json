@@ -1,0 +1,487 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-10-18T19:01:07.844224+00:00",
+  "base_revision": "910dfd90db71d4e1d90e4b4c7be78ab3443bd993",
+  "platform": "Linux-6.18.55-x86_64-with-glibc2.44",
+  "cpu": "AMD Ryzen 9 7900 12-Core Processor",
+  "method": "20 alternating before/after rounds, pinned to CPU 2. Each binary is benches/salsa_keystroke.rs built with the profiling profile and -Cforce-frame-pointers=yes. Each row is a warm-loop mean; summaries are medians and minima of those means. Printed measurements are rounded to 0.01 us. Compilation and profiling finish before timing.",
+  "command": "RUSTFLAGS=\"$RUSTFLAGS -Cforce-frame-pointers=yes\" cargo build --profile profiling --bench salsa_keystroke; taskset -c 2 <saved-benchmark-binary>",
+  "corpus": {
+    "path": "bench/corpus/JuliaSyntax/src/parser.jl",
+    "sha256": "d2ed3738cc928fa252bd15c75692120b9727912ced1af6ddb4d4b86488ffa49c",
+    "bytes": 137401
+  },
+  "source_sha256": {
+    "crates/fatou-parser/src/parser/reparse.rs": "b877fdd4b2f9c8fd3814b12c33176cc16d58b1b47a864e544695e1b324479f95",
+    "src/incremental.rs": "28e74c3ee184bcf3cc38c7c0a19a99dc608a6f048bdcb7b54bfb057bebb21059",
+    "benches/salsa_keystroke.rs": "797847625d4599d6dba29e54779e5de1d09b34e78eda90512991bca260624010"
+  },
+  "results": {
+    "JuliaSyntax/src/parser.jl (134 KB)": {
+      "upsert, text unchanged": {
+        "before": {
+          "median_ns": 209.0,
+          "min_ns": 194.0,
+          "round_means_ns": [
+            213.0, 194.0, 212.0, 213.0, 208.0, 211.0, 213.0, 212.0, 208.0,
+            209.0, 216.0, 206.0, 208.0, 211.0, 208.0, 208.0, 206.0, 208.0,
+            224.0, 209.0
+          ]
+        },
+        "after": {
+          "median_ns": 211.0,
+          "min_ns": 193.0,
+          "round_means_ns": [
+            193.0, 215.0, 211.0, 212.0, 213.0, 212.0, 207.0, 211.0, 208.0,
+            212.0, 219.0, 201.0, 212.0, 223.0, 207.0, 212.0, 205.0, 205.0,
+            209.0, 206.0
+          ]
+        },
+        "after_over_before": 1.0095693779904307
+      },
+      "splice + upsert + stage (write phase)": {
+        "before": {
+          "median_ns": 5245.0,
+          "min_ns": 5070.0,
+          "round_means_ns": [
+            5210.0, 5250.0, 5240.0, 5290.0, 5300.0, 5240.0, 5230.0, 5330.0,
+            5210.0, 5280.0, 5190.0, 5260.0, 5340.0, 5360.0, 5070.0, 5280.0,
+            5380.0, 5240.0, 5180.0, 5240.0
+          ]
+        },
+        "after": {
+          "median_ns": 5250.0,
+          "min_ns": 5000.0,
+          "round_means_ns": [
+            5060.0, 5270.0, 5340.0, 5290.0, 5250.0, 5250.0, 5270.0, 5200.0,
+            5250.0, 5310.0, 5340.0, 5000.0, 5210.0, 5250.0, 5250.0, 5220.0,
+            5220.0, 5290.0, 5230.0, 5020.0
+          ]
+        },
+        "after_over_before": 1.0009532888465205
+      },
+      "keystroke end-to-end (parse included)": {
+        "before": {
+          "median_ns": 87895.0,
+          "min_ns": 86380.0,
+          "round_means_ns": [
+            87790.0, 88040.0, 88090.0, 88170.0, 88300.0, 87560.0, 87640.0,
+            88020.0, 88090.0, 87240.0, 87610.0, 87900.0, 86380.0, 88110.0,
+            88290.0, 87190.0, 87810.0, 87770.0, 90370.0, 87890.0
+          ]
+        },
+        "after": {
+          "median_ns": 26880.0,
+          "min_ns": 26580.0,
+          "round_means_ns": [
+            26810.0, 26980.0, 27010.0, 27140.0, 27020.0, 26890.0, 27010.0,
+            26680.0, 26930.0, 27010.0, 26960.0, 27160.0, 26580.0, 26820.0,
+            26630.0, 26870.0, 26720.0, 26730.0, 26770.0, 26740.0
+          ]
+        },
+        "after_over_before": 0.3058194436543603
+      }
+    },
+    "the same file x8 (1073 KB)": {
+      "upsert, text unchanged": {
+        "before": {
+          "median_ns": 210.0,
+          "min_ns": 202.0,
+          "round_means_ns": [
+            211.0, 215.0, 215.0, 210.0, 209.0, 208.0, 211.0, 214.0, 210.0,
+            209.0, 211.0, 213.0, 211.0, 202.0, 206.0, 203.0, 209.0, 209.0,
+            223.0, 204.0
+          ]
+        },
+        "after": {
+          "median_ns": 208.0,
+          "min_ns": 203.0,
+          "round_means_ns": [
+            207.0, 211.0, 203.0, 207.0, 216.0, 206.0, 209.0, 209.0, 208.0,
+            208.0, 218.0, 207.0, 207.0, 208.0, 210.0, 206.0, 216.0, 209.0,
+            214.0, 208.0
+          ]
+        },
+        "after_over_before": 0.9904761904761905
+      },
+      "splice + upsert + stage (write phase)": {
+        "before": {
+          "median_ns": 41030.0,
+          "min_ns": 40810.0,
+          "round_means_ns": [
+            40870.0, 41100.0, 41380.0, 40940.0, 41030.0, 41060.0, 41250.0,
+            41020.0, 41340.0, 41030.0, 41020.0, 41120.0, 40990.0, 41150.0,
+            40900.0, 40810.0, 40890.0, 41030.0, 41220.0, 41010.0
+          ]
+        },
+        "after": {
+          "median_ns": 41100.0,
+          "min_ns": 40130.0,
+          "round_means_ns": [
+            41100.0, 40980.0, 40900.0, 41210.0, 41110.0, 41030.0, 41080.0,
+            40130.0, 41260.0, 41210.0, 41290.0, 40980.0, 40260.0, 41100.0,
+            41150.0, 41120.0, 40730.0, 40850.0, 41260.0, 41100.0
+          ]
+        },
+        "after_over_before": 1.0017060687301975
+      },
+      "keystroke end-to-end (parse included)": {
+        "before": {
+          "median_ns": 698160.0,
+          "min_ns": 695760.0,
+          "round_means_ns": [
+            696610.0, 702470.0, 698310.0, 701070.0, 696710.0, 698010.0,
+            695960.0, 706430.0, 700500.0, 701460.0, 697720.0, 695760.0,
+            698760.0, 696580.0, 697060.0, 696880.0, 696280.0, 698330.0,
+            701850.0, 705490.0
+          ]
+        },
+        "after": {
+          "median_ns": 211935.0,
+          "min_ns": 208380.0,
+          "round_means_ns": [
+            211450.0, 212910.0, 212860.0, 211070.0, 210180.0, 210940.0,
+            211920.0, 212320.0, 212370.0, 212950.0, 213100.0, 211690.0,
+            210320.0, 212170.0, 208380.0, 211950.0, 212090.0, 211880.0,
+            212010.0, 210760.0
+          ]
+        },
+        "after_over_before": 0.3035622206943967
+      }
+    }
+  },
+  "rounds": [
+    {
+      "round": 1,
+      "variant": "before",
+      "elapsed_seconds": 0.3315967920007097
+    },
+    {
+      "round": 1,
+      "variant": "after",
+      "elapsed_seconds": 0.18856902699917555
+    },
+    {
+      "round": 2,
+      "variant": "after",
+      "elapsed_seconds": 0.19086707899987232
+    },
+    {
+      "round": 2,
+      "variant": "before",
+      "elapsed_seconds": 0.33375612999952864
+    },
+    {
+      "round": 3,
+      "variant": "before",
+      "elapsed_seconds": 0.33098409100057324
+    },
+    {
+      "round": 3,
+      "variant": "after",
+      "elapsed_seconds": 0.1904808729996148
+    },
+    {
+      "round": 4,
+      "variant": "after",
+      "elapsed_seconds": 0.19012690500130702
+    },
+    {
+      "round": 4,
+      "variant": "before",
+      "elapsed_seconds": 0.33271020999927714
+    },
+    {
+      "round": 5,
+      "variant": "before",
+      "elapsed_seconds": 0.3312354459994822
+    },
+    {
+      "round": 5,
+      "variant": "after",
+      "elapsed_seconds": 0.19068038200020965
+    },
+    {
+      "round": 6,
+      "variant": "after",
+      "elapsed_seconds": 0.1887735309992422
+    },
+    {
+      "round": 6,
+      "variant": "before",
+      "elapsed_seconds": 0.32944762999977684
+    },
+    {
+      "round": 7,
+      "variant": "before",
+      "elapsed_seconds": 0.3312827589998051
+    },
+    {
+      "round": 7,
+      "variant": "after",
+      "elapsed_seconds": 0.18848248300128034
+    },
+    {
+      "round": 8,
+      "variant": "after",
+      "elapsed_seconds": 0.1892227250009455
+    },
+    {
+      "round": 8,
+      "variant": "before",
+      "elapsed_seconds": 0.3335570529998222
+    },
+    {
+      "round": 9,
+      "variant": "before",
+      "elapsed_seconds": 0.33182974500050477
+    },
+    {
+      "round": 9,
+      "variant": "after",
+      "elapsed_seconds": 0.19172623099984776
+    },
+    {
+      "round": 10,
+      "variant": "after",
+      "elapsed_seconds": 0.18914130600023782
+    },
+    {
+      "round": 10,
+      "variant": "before",
+      "elapsed_seconds": 0.3358164979999856
+    },
+    {
+      "round": 11,
+      "variant": "before",
+      "elapsed_seconds": 0.3328614269994432
+    },
+    {
+      "round": 11,
+      "variant": "after",
+      "elapsed_seconds": 0.19009630300024583
+    },
+    {
+      "round": 12,
+      "variant": "after",
+      "elapsed_seconds": 0.19157206299860263
+    },
+    {
+      "round": 12,
+      "variant": "before",
+      "elapsed_seconds": 0.33137327100121183
+    },
+    {
+      "round": 13,
+      "variant": "before",
+      "elapsed_seconds": 0.3289097180004319
+    },
+    {
+      "round": 13,
+      "variant": "after",
+      "elapsed_seconds": 0.1900139350000245
+    },
+    {
+      "round": 14,
+      "variant": "after",
+      "elapsed_seconds": 0.18875021299936634
+    },
+    {
+      "round": 14,
+      "variant": "before",
+      "elapsed_seconds": 0.3293790090010589
+    },
+    {
+      "round": 15,
+      "variant": "before",
+      "elapsed_seconds": 0.3306229270001495
+    },
+    {
+      "round": 15,
+      "variant": "after",
+      "elapsed_seconds": 0.1876642780007387
+    },
+    {
+      "round": 16,
+      "variant": "after",
+      "elapsed_seconds": 0.18997976500031655
+    },
+    {
+      "round": 16,
+      "variant": "before",
+      "elapsed_seconds": 0.33098530500137713
+    },
+    {
+      "round": 17,
+      "variant": "before",
+      "elapsed_seconds": 0.3296142190010869
+    },
+    {
+      "round": 17,
+      "variant": "after",
+      "elapsed_seconds": 0.18844223599990073
+    },
+    {
+      "round": 18,
+      "variant": "after",
+      "elapsed_seconds": 0.18869054000060714
+    },
+    {
+      "round": 18,
+      "variant": "before",
+      "elapsed_seconds": 0.33273327500137384
+    },
+    {
+      "round": 19,
+      "variant": "before",
+      "elapsed_seconds": 0.3317966440008604
+    },
+    {
+      "round": 19,
+      "variant": "after",
+      "elapsed_seconds": 0.19126936300017405
+    },
+    {
+      "round": 20,
+      "variant": "after",
+      "elapsed_seconds": 0.18804393499885919
+    },
+    {
+      "round": 20,
+      "variant": "before",
+      "elapsed_seconds": 0.3347004059996834
+    }
+  ],
+  "binary_sha256": {
+    "before": "2eb8aa11e5c45bcba76e76564a192a863c465e163aa824fedbded9477c559fa3",
+    "after": "8c7ba242917e9e07b4a830062c1a4203ebd4c13239ad3cef12b0fe28ed234156"
+  },
+  "baseline_note": "The baseline binary uses base_revision runtime code plus test-only regression additions. The after binary adds the single-edit branch in reparse_edits; the benchmark harness is identical.",
+  "hyperfine": {
+    "results": [
+      {
+        "command": "taskset -c 2 /tmp/fatou-single-edit-before",
+        "mean": 0.33067882162,
+        "stddev": 0.0012467570275129958,
+        "median": 0.33090126712,
+        "user": 0.3055663,
+        "system": 0.02345514,
+        "min": 0.32768544362000007,
+        "max": 0.33341268362000004,
+        "times": [
+          0.33341268362000004, 0.32986429262000005, 0.33102021462000003,
+          0.33219788762, 0.33110274062000006, 0.32908194562000004,
+          0.33163816662000006, 0.33126442762, 0.33128454662000006,
+          0.33078231962000004, 0.33167568062, 0.32997517262000003,
+          0.33058859262000007, 0.33044986262000003, 0.32969981162000006,
+          0.33128476862000006, 0.33116257962000006, 0.32914306462000004,
+          0.32768544362000007, 0.33026223062000004
+        ],
+        "memory_usage_byte": [
+          34172928, 34201600, 34201600, 34201600, 34201600, 34201600, 34201600,
+          34201600, 34201600, 34201600, 34201600, 34201600, 34201600, 34201600,
+          34201600, 34201600, 34201600, 34201600, 34201600, 34201600
+        ],
+        "exit_codes": [
+          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+        ]
+      },
+      {
+        "command": "taskset -c 2 /tmp/fatou-single-edit-after",
+        "mean": 0.18939216771999995,
+        "stddev": 0.0011843713695707222,
+        "median": 0.18917854962000002,
+        "user": 0.16409965,
+        "system": 0.024260190000000004,
+        "min": 0.18770883862,
+        "max": 0.19166751062,
+        "times": [
+          0.19001623162, 0.18929661662000002, 0.18873904462000002,
+          0.19144807962000002, 0.18992085762000002, 0.19075431562,
+          0.18840041462, 0.18932342962, 0.18851902662, 0.18876650062,
+          0.18906048262, 0.18849207962, 0.19093581962, 0.18773847062000001,
+          0.18935322762, 0.18854340962000002, 0.18770883862,
+          0.18846542362000002, 0.19166751062, 0.19069357462
+        ],
+        "memory_usage_byte": [
+          34209792, 34209792, 34209792, 34209792, 34209792, 34209792, 34209792,
+          34209792, 34209792, 34209792, 34209792, 34209792, 34209792, 34209792,
+          34209792, 34209792, 34209792, 34209792, 34209792, 34271232
+        ],
+        "exit_codes": [
+          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+        ]
+      }
+    ]
+  },
+  "profile": {
+    "method": "20 invocations of each pinned benchmark, sampled separately with perf record -F 997 --call-graph fp; perf report --children --no-inline. Percentages include warmups and cold initial parses as well as all timed rows. A zero means the symbol had no samples.",
+    "results": {
+      "before": {
+        "samples": 6434,
+        "symbols": {
+          "fatou::incremental::parsed_document": {
+            "inclusive_percent": 79.8,
+            "self_percent": 0.0
+          },
+          "fatou_parser::parser::edit::diff_edit": {
+            "inclusive_percent": 46.79,
+            "self_percent": 46.77
+          },
+          "fatou_parser::parser::reparse::reparse_edits": {
+            "inclusive_percent": 0,
+            "self_percent": 0
+          },
+          "fatou_parser::parser::reparse::reparse_impl": {
+            "inclusive_percent": 12.92,
+            "self_percent": 0.02
+          },
+          "fatou::text::edit::apply_content_changes": {
+            "inclusive_percent": 14.74,
+            "self_percent": 0.01
+          }
+        }
+      },
+      "after": {
+        "samples": 3751,
+        "symbols": {
+          "fatou::incremental::parsed_document": {
+            "inclusive_percent": 62.3,
+            "self_percent": 0.0
+          },
+          "fatou_parser::parser::edit::diff_edit": {
+            "inclusive_percent": 0,
+            "self_percent": 0
+          },
+          "fatou_parser::parser::reparse::reparse_edits": {
+            "inclusive_percent": 23.19,
+            "self_percent": 0.0
+          },
+          "fatou_parser::parser::reparse::reparse_impl": {
+            "inclusive_percent": 23.13,
+            "self_percent": 0.0
+          },
+          "fatou::text::edit::apply_content_changes": {
+            "inclusive_percent": 26.77,
+            "self_percent": 0.09
+          }
+        }
+      }
+    }
+  },
+  "classification": "Redundant whole-text boundary search: reuse a supplied edit after verifying its exact transform with slice comparisons.",
+  "tried_and_reverted": [],
+  "next_hotspots": [
+    "apply_content_changes: 26.77% inclusive after the change",
+    "reparse_impl: 23.13% inclusive after the change, including rowan green-tree splicing"
+  ],
+  "validation": [
+    "cargo test --workspace: 2104 passed, 0 failed, 5 ignored",
+    "cargo clippy --workspace --all-targets --all-features -- -D warnings",
+    "cargo fmt --all -- --check",
+    "cargo build -p fatou-parser --release --target wasm32-unknown-unknown",
+    "cargo build -p fatou-formatter --release --target wasm32-unknown-unknown --features schema",
+    "cargo run --release -- debug format bench/corpus/JuliaSyntax: all checks passed, 43 files",
+    "Parser snapshots, JuliaSyntax oracle expectations, and formatter fixtures are unchanged."
+  ]
+}

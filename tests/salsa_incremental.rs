@@ -367,6 +367,40 @@ fn reverting_to_identical_disk_text_keeps_the_memos() {
     assert_eq!(db.file_text(file), "x = 2\n");
 }
 
+#[test]
+fn a_single_staged_edit_matches_a_fresh_parse() {
+    use fatou::parser::fingerprint;
+
+    let old = "α = 1\nfiller = 2\nomega = 3\n";
+    let renamed = "αX = 1\nfiller = 2\nomega = 3\n";
+    for (change, new) in [
+        (edit(2..2, "X"), renamed),
+        (edit(0..2, "beta"), "beta = 1\nfiller = 2\nomega = 3\n"),
+        (edit(2..2, "\""), "α\" = 1\nfiller = 2\nomega = 3\n"),
+        // A broad verified edit must agree with the narrow identifier change
+        // that diffing these texts would recover.
+        (edit(0..old.len(), renamed), renamed),
+        // Stale or invalid hints must not change the query's result.
+        (edit(500..500, "X"), renamed),
+        (edit(1..1, "X"), renamed),
+        (edit(2..2, "wrong"), renamed),
+    ] {
+        let mut db = IncrementalDatabase::new();
+        let file = db.add_file(old);
+        parsed_tree_root(&db, file);
+        db.set_file_text(file, new);
+        db.reparse_stage_edits(file, Some(vec![change.clone()]));
+
+        let full = parse(new);
+        let root = parsed_tree_root(&db, file);
+        assert_eq!(root.to_string(), new, "{change:?}");
+        assert_eq!(fingerprint(&root), fingerprint(&full.cst), "{change:?}");
+        assert_eq!(parse_diagnostics(&db, file), full.diagnostics, "{change:?}");
+        assert!(db.reparse_pending_edits(file).is_empty());
+        assert_eq!(&*db.reparse_prev(file).unwrap().text, new);
+    }
+}
+
 /// Two identifier edits far apart: `diff_edit` would collapse them into one
 /// span covering both statements, so this is the shape only the staged chain
 /// rescues. Whichever route wins, the tree must equal a full parse.

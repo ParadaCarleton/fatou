@@ -196,15 +196,15 @@ style remains project policy rather than language correctness.
   only if fatou starts targeting documents where the splice dominates, and
   only after the `diff_edit` bypass below.
 
-- [ ] Skip `diff_edit` when the staged chain is a single verified edit.
-  `parsed_document` declines a chain below two edits, so the ordinary
-  one-keystroke case always re-derives, by diffing the two whole texts, an
-  edit the language server just handed it. `benches/salsa_keystroke.rs` puts
-  that at ~200 us of a ~500 us keystroke at 1 MB — more than the token-tier
-  reparse it feeds. The chain is already verified against the previous text
-  (`reparse_edits`' fits check), so a single-edit chain can go straight to
-  `reparse` with no new trust; `diff_edit` stays the fallback for a text that
-  changed by a route carrying no edits.
+- [x] Skip `diff_edit` when the staged chain is a single verified edit.
+  `reparse_edits` checks the range and compares the unchanged prefix, inserted
+  text, and unchanged suffix against the current buffer, then passes the edit
+  straight to `reparse` without allocating an intermediate text. Stale or
+  invalid hints still fall back to `diff_edit`, as do changes carrying no edits.
+  In 20 alternating runs pinned to one CPU, median end-to-end keystroke time
+  fell from 88 us to 27 us at 134 KB and from 698 us to 212 us at 1 MB, about
+  70% in both cases. `diff_edit` went from 47% of profile samples to none.
+  Measurements and methodology are recorded in `bench/keystroke.json`.
 
 ## Project files (`Project.toml`/`Manifest.toml`)
 
