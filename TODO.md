@@ -2,6 +2,12 @@
 
 ## Parser
 
+- [ ] Accept whitespace after a standalone colon before a closing delimiter:
+  `A[ rows, : ]` and `view( A, i, : )` currently emit
+  `QuoteColonWhitespace`, blocking linting and `format --safe`. Julia 1.13.0
+  and JuliaSyntax 1.0.2 accept both. Preserve diagnostics for invalid quoted
+  symbols such as `: name`.
+
 - [x] Parse implicit multiplication before radicals (`a√4`, `a∛8`, and
   `a∜16`), including broadcast forms. Unary operands and consecutive factors
   preserve Julia's precedence and grouping; whitespace and syntactic prefixes
@@ -133,6 +139,20 @@ style remains project policy rather than language correctness.
   include closures remain conservative.
 
 ### Rules
+
+- [ ] Preserve dispatch types inside `@nospecialize` parameter annotations in
+  the shared signature harvester. `f(@nospecialize(_::Int)) = 1` followed by
+  `f(@nospecialize(_::String)) = 2` incorrectly triggers `duplicate-method`:
+  `param_from_pattern` lowers both macro arguments to an untyped default.
+  Julia 1.13.0 defines two distinct methods. Unknown parameter macros must
+  not be treated as proof that dispatch signatures are identical.
+
+- [ ] Make `unused-import` account for uses in the same module's included
+  files through the shared project model. An entry module that includes
+  `imports.jl` containing `using Base: sin` and `use.jl` containing
+  `f(x) = sin(x)` incorrectly reports `sin` as unused, even with the entry
+  file declared in `[project] entry-points`. Withhold findings when the
+  include context cannot establish that an import is unused.
 
 - [ ] Add an opt-in rule for functions that read known nonconstant, untyped
   globals (#109). Use the shared resolver to distinguish global bindings from
