@@ -43,6 +43,52 @@ fn parser_fixtures() {
 }
 
 #[test]
+fn standalone_colon_accepts_trailing_whitespace() {
+    let input = include_str!("fixtures/parser/colon_value_whitespace/input.jl");
+    let output = parse(input);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+
+    for input in [": ", ":\t", ": #= comment =#", ": # comment"] {
+        let output = parse(input);
+        assert!(
+            output.diagnostics.is_empty(),
+            "{input:?}: {:?}",
+            output.diagnostics
+        );
+        assert_eq!(reconstruct(input), input);
+    }
+}
+
+#[test]
+fn quote_colon_keeps_whitespace_diagnostics() {
+    for input in [
+        ": name",
+        "A[: name]",
+        "f(: name)",
+        ": (name)",
+        ": +",
+        "A[: end]",
+        "A.: end",
+        "A[:\n]",
+        "[: # comment\n]",
+        ":\n",
+    ] {
+        let output = parse(input);
+        let anchor = input.find(':').unwrap() + 1;
+        assert!(
+            output.diagnostics.iter().any(|diagnostic| {
+                diagnostic.message == "whitespace after `:`"
+                    && diagnostic.start == anchor
+                    && diagnostic.end == anchor
+            }),
+            "{input:?}: {:?}",
+            output.diagnostics,
+        );
+        assert_eq!(reconstruct(input), input);
+    }
+}
+
+#[test]
 fn radical_juxtaposition_parses_cleanly() {
     let input = include_str!("fixtures/parser/radical_juxtaposition/input.jl");
     let output = parse(input);

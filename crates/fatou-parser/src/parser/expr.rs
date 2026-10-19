@@ -1997,6 +1997,24 @@ pub(super) fn parse_quote_sym(
     inside_brackets: bool,
     generator_for_ends: bool,
 ) -> Option<ExprParse> {
+    // A closing delimiter, separator, or EOF leaves `:` as a value atom even
+    // with intervening spaces or comments. Decline before diagnosing a quote;
+    // a newline still starts the quote path rather than terminating it.
+    let next_on_line = ctx.skip_ws_and_comments(start + 1);
+    if value_position
+        && matches!(
+            ctx.token(next_on_line).map(|t| t.kind),
+            None | Some(
+                TokKind::RParen
+                    | TokKind::RBracket
+                    | TokKind::RBrace
+                    | TokKind::Comma
+                    | TokKind::Semicolon
+            )
+        )
+    {
+        return None;
+    }
     let next = ctx.skip_trivia(start + 1);
     // A space-separated *closing* block keyword (`end`/`else`/`elseif`/`catch`/
     // `finally`) at value position is not a quotable symbol: `: end` ⇒ a bare `:`

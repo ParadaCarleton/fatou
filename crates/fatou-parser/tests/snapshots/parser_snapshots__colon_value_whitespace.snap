@@ -1,0 +1,163 @@
+---
+source: crates/fatou-parser/tests/parser_snapshots.rs
+assertion_line: 41
+expression: rendered
+---
+ROOT@0..140
+  INDEX_EXPR@0..12
+    NAME@0..1
+      IDENT@0..1 "A"
+    ARG_LIST@1..12
+      LBRACKET@1..2 "["
+      WHITESPACE@2..3 " "
+      ARG@3..7
+        NAME@3..7
+          IDENT@3..7 "rows"
+      COMMA@7..8 ","
+      WHITESPACE@8..9 " "
+      ARG@9..10
+        OPERATOR_ATOM@9..10
+          COLON@9..10 ":"
+      WHITESPACE@10..11 " "
+      RBRACKET@11..12 "]"
+  NEWLINE@12..13 "\n"
+  CALL_EXPR@13..28
+    NAME@13..17
+      IDENT@13..17 "view"
+    ARG_LIST@17..28
+      LPAREN@17..18 "("
+      WHITESPACE@18..19 " "
+      ARG@19..20
+        NAME@19..20
+          IDENT@19..20 "A"
+      COMMA@20..21 ","
+      WHITESPACE@21..22 " "
+      ARG@22..23
+        NAME@22..23
+          IDENT@22..23 "i"
+      COMMA@23..24 ","
+      WHITESPACE@24..25 " "
+      ARG@25..26
+        OPERATOR_ATOM@25..26
+          COLON@25..26 ":"
+      WHITESPACE@26..27 " "
+      RPAREN@27..28 ")"
+  NEWLINE@28..29 "\n"
+  PAREN_EXPR@29..33
+    LPAREN@29..30 "("
+    COLON@30..31 ":"
+    WHITESPACE@31..32 " "
+    RPAREN@32..33 ")"
+  NEWLINE@33..34 "\n"
+  VECT_EXPR@34..38
+    LBRACKET@34..35 "["
+    ARG@35..36
+      OPERATOR_ATOM@35..36
+        COLON@35..36 ":"
+    WHITESPACE@36..37 " "
+    RBRACKET@37..38 "]"
+  NEWLINE@38..39 "\n"
+  BRACES@39..43
+    LBRACE@39..40 "{"
+    ARG@40..41
+      OPERATOR_ATOM@40..41
+        COLON@40..41 ":"
+    WHITESPACE@41..42 " "
+    RBRACE@42..43 "}"
+  NEWLINE@43..44 "\n"
+  CURLY_EXPR@44..49
+    NAME@44..45
+      IDENT@44..45 "T"
+    ARG_LIST@45..49
+      LBRACE@45..46 "{"
+      ARG@46..47
+        OPERATOR_ATOM@46..47
+          COLON@46..47 ":"
+      WHITESPACE@47..48 " "
+      RBRACE@48..49 "}"
+  NEWLINE@49..50 "\n"
+  INDEX_EXPR@50..59
+    NAME@50..51
+      IDENT@50..51 "A"
+    ARG_LIST@51..59
+      LBRACKET@51..52 "["
+      ARG@52..53
+        OPERATOR_ATOM@52..53
+          COLON@52..53 ":"
+      WHITESPACE@53..54 " "
+      COMMA@54..55 ","
+      WHITESPACE@55..56 " "
+      ARG@56..57
+        OPERATOR_ATOM@56..57
+          COLON@56..57 ":"
+      WHITESPACE@57..58 " "
+      RBRACKET@58..59 "]"
+  NEWLINE@59..60 "\n"
+  CALL_EXPR@60..77
+    NAME@60..61
+      IDENT@60..61 "f"
+    ARG_LIST@61..77
+      LPAREN@61..62 "("
+      ARG@62..63
+        OPERATOR_ATOM@62..63
+          COLON@62..63 ":"
+      WHITESPACE@63..64 " "
+      COMMA@64..65 ","
+      WHITESPACE@65..66 " "
+      ARG@66..67
+        OPERATOR_ATOM@66..67
+          COLON@66..67 ":"
+      WHITESPACE@67..68 " "
+      PARAMETERS@68..76
+        SEMICOLON@68..69 ";"
+        WHITESPACE@69..70 " "
+        KEYWORD_ARG@70..76
+          NAME@70..72
+            IDENT@70..72 "kw"
+          WHITESPACE@72..73 " "
+          EQ@73..74 "="
+          WHITESPACE@74..75 " "
+          LITERAL@75..76
+            INTEGER@75..76 "1"
+      RPAREN@76..77 ")"
+  NEWLINE@77..78 "\n"
+  MATRIX_EXPR@78..86
+    LBRACKET@78..79 "["
+    ARG@79..80
+      OPERATOR_ATOM@79..80
+        COLON@79..80 ":"
+    WHITESPACE@80..81 " "
+    SEMICOLON@81..82 ";"
+    WHITESPACE@82..83 " "
+    ARG@83..84
+      OPERATOR_ATOM@83..84
+        COLON@83..84 ":"
+    WHITESPACE@84..85 " "
+    RBRACKET@85..86 "]"
+  NEWLINE@86..87 "\n"
+  CALL_EXPR@87..113
+    NAME@87..88
+      IDENT@87..88 "f"
+    ARG_LIST@88..113
+      LPAREN@88..89 "("
+      ARG@89..90
+        OPERATOR_ATOM@89..90
+          COLON@89..90 ":"
+      WHITESPACE@90..91 " "
+      BLOCK_COMMENT@91..111 "#= inline comment =#"
+      WHITESPACE@111..112 " "
+      RPAREN@112..113 ")"
+  NEWLINE@113..114 "\n"
+  INDEX_EXPR@114..139
+    NAME@114..115
+      IDENT@114..115 "A"
+    ARG_LIST@115..139
+      LBRACKET@115..116 "["
+      ARG@116..117
+        OPERATOR_ATOM@116..117
+          COLON@116..117 ":"
+      WHITESPACE@117..118 " "
+      BLOCK_COMMENT@118..137 "#= block\ncomment =#"
+      WHITESPACE@137..138 " "
+      RBRACKET@138..139 "]"
+  NEWLINE@139..140 "\n"

@@ -51,6 +51,7 @@ colon_range_newline
 colon_space_closer_keyword
 colon_stray_close
 colon_value_atom
+colon_value_whitespace
 command_literal
 command_macro
 command_macro_numeric_suffix
