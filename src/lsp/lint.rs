@@ -21,7 +21,7 @@ use crate::config::LintConfig;
 use crate::incremental::Analysis;
 use crate::linter::docs::rule_doc_url;
 use crate::linter::rules::{RESOLUTION_RULES, ResolutionContext, is_shipped_rule};
-use crate::linter::{self, ResolvedRules, Severity, lint_parsed};
+use crate::linter::{self, ResolvedRules, Severity};
 use crate::parser::parse;
 use crate::resolve::PackageSource;
 use crate::semantic::SemanticModel;
@@ -105,6 +105,9 @@ pub(crate) fn lint_findings_via_db(
         let declared_deps = workspace
             .as_ref()
             .and_then(|(pkg, _)| snapshot.declared_deps(&pkg.name));
+        let import_usage = (!in_script && rules.enabled().contains("unused-import"))
+            .then(|| snapshot.workspace_import_usage())
+            .filter(|usage| workspace.is_some() || usage.applies(path));
         let resolution = Some(ResolutionContext {
             packages: if scripts.is_some() {
                 &script_packages
@@ -117,7 +120,7 @@ pub(crate) fn lint_findings_via_db(
         // No include problems: the server publishes its own include-graph
         // diagnostics (see `crate::lsp::graph_diagnostics`), so the
         // include-graph lint rules stay silent here.
-        Some(crate::linter::check::lint_parsed_with_scripts(
+        Some(crate::linter::check::lint_parsed_with_import_usage(
             Some(path),
             &root,
             model,
@@ -125,12 +128,13 @@ pub(crate) fn lint_findings_via_db(
             resolution,
             &[],
             scripts.as_ref(),
+            import_usage.as_ref(),
         ))
     }));
     match cached {
         Ok(Some(findings)) => findings,
         // Cache miss (`Ok(None)`) or a racing write (`Err`): re-parse from text.
-        Ok(None) | Err(_) => lint_findings(text, rules),
+        Ok(None) | Err(_) => lint_findings_with_context(text, rules, true),
     }
 }
 
@@ -152,12 +156,33 @@ impl PackageSource for ScriptPackages<'_> {
 /// library would flash false positives — missing them for one round trip is
 /// the safe failure.
 fn lint_findings(text: &str, rules: &ServerRules) -> Vec<linter::Diagnostic> {
+    lint_findings_with_context(text, rules, false)
+}
+
+fn lint_findings_with_context(
+    text: &str,
+    rules: &ServerRules,
+    pending: bool,
+) -> Vec<linter::Diagnostic> {
     let parsed = parse(text);
     if !parsed.diagnostics.is_empty() {
         return Vec::new();
     }
     let model = SemanticModel::build(&parsed.cst);
-    lint_parsed(None, &parsed.cst, &model, rules.get(false), None, &[])
+    let usage = crate::project::scripts::ScriptAnalysis {
+        pending,
+        ..Default::default()
+    };
+    crate::linter::check::lint_parsed_with_import_usage(
+        None,
+        &parsed.cst,
+        &model,
+        rules.get(false),
+        None,
+        &[],
+        None,
+        pending.then_some(&usage),
+    )
 }
 
 /// The rules whose full behavior needs the resolution context a workspace
@@ -186,10 +211,14 @@ impl ServerRules {
     /// carry through.
     pub(crate) fn from_config(lint: &LintConfig) -> (Self, Vec<String>) {
         let (plain, unknown) = ResolvedRules::resolve(lint);
+        let (defaults, _) = ResolvedRules::resolve(&LintConfig::default());
         let mut member_config = lint.clone();
-        member_config
-            .extend_select
-            .extend(WORKSPACE_MEMBER_RULES.iter().map(|id| id.to_string()));
+        member_config.extend_select.extend(
+            WORKSPACE_MEMBER_RULES
+                .iter()
+                .filter(|id| !defaults.enabled().contains(id))
+                .map(|id| id.to_string()),
+        );
         // Report unknown IDs from the plain resolve only: the other variants
         // repeat the user's IDs and would duplicate those warnings.
         let (member, _) = ResolvedRules::resolve(&member_config);
@@ -317,6 +346,16 @@ mod tests {
     use lsp_types::Position;
 
     const UNUSED_LOCAL: &str = "function f(x)\n    tmp = x + 1\n    return x\nend\n";
+
+    #[test]
+    fn workspace_context_does_not_reenable_deselected_default_rules() {
+        let (rules, _) = ServerRules::from_config(&LintConfig {
+            select: Some(vec!["unused-binding".into()]),
+            ..Default::default()
+        });
+        assert!(!rules.get(true).enabled().contains("unused-import"));
+        assert!(rules.get(true).enabled().contains("undefined-name"));
+    }
 
     #[test]
     fn explicitly_enabled_undefined_names_explain_includes_without_context() {
@@ -669,6 +708,70 @@ mod tests {
             ),
             expected,
             "untracked path must fall back to the buffer text"
+        );
+    }
+    #[test]
+    fn pending_script_usage_and_cache_misses_cannot_prove_imports_unused() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("imports.jl");
+        let config = LintConfig {
+            select: Some(vec!["unused-import".into(), "outdated-suppression".into()]),
+            ..Default::default()
+        };
+        let (mut rules, _) = ServerRules::from_config(&config);
+        rules.entry_points = vec![dir.path().join("main.jl")];
+        let mut db = crate::incremental::IncrementalDatabase::default();
+        let text = TextBuffer::from("using Base: sin\n");
+        db.upsert_file(&path, text.text_arc());
+        assert!(
+            lint_diagnostics_via_db(
+                &db.snapshot(),
+                &path,
+                &text,
+                PositionEncoding::Utf16,
+                &rules
+            )
+            .is_empty()
+        );
+
+        rules.entry_points.clear();
+        assert!(
+            lint_diagnostics_via_db(
+                &db.snapshot(),
+                &path,
+                &text,
+                PositionEncoding::Utf16,
+                &rules
+            )
+            .is_empty()
+        );
+        db.set_library(Default::default(), Default::default(), Vec::new());
+        assert_eq!(
+            lint_diagnostics_via_db(
+                &db.snapshot(),
+                &path,
+                &text,
+                PositionEncoding::Utf16,
+                &rules
+            )
+            .len(),
+            1
+        );
+
+        // A cache miss must also keep a suppression whose verdict depends on
+        // unavailable include context, even when the live text uses the name.
+        let text = TextBuffer::from(
+            "# fatou-ignore unused-import: used by included code\nusing Base: sin\nf(x) = sin(x)\n",
+        );
+        assert!(
+            lint_diagnostics_via_db(
+                &db.snapshot(),
+                &path,
+                &text,
+                PositionEncoding::Utf16,
+                &rules
+            )
+            .is_empty()
         );
     }
 }

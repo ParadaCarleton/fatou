@@ -29,6 +29,8 @@ fn lint(dir: &Path, args: &[&str]) -> Vec<Value> {
         .env_remove("FATOU_CONFIG")
         .env("JULIA_DEPOT_PATH", dir.join("empty-depot"))
         .env("JULIA_PROJECT", dir)
+        .env("JULIA_BINDIR", "")
+        .env("PATH", "")
         .args(["lint", "--output", "json"])
         .args(args)
         .output()
@@ -313,4 +315,164 @@ fn script_cycles_do_not_disable_independent_entries() {
     let findings = lint(dir.path(), &["cycle.jl", "good.jl"]);
     assert_eq!(findings.len(), 1, "{findings:#?}");
     assert!(findings[0].to_string().contains("`typo`"));
+}
+
+#[test]
+fn unused_import_counts_uses_across_the_include_closure() {
+    let dir = project(&["main.jl"]);
+    write(
+        dir.path(),
+        "fatou.toml",
+        "[project]\nentry-points = [\"main.jl\"]\n[lint]\nselect = [\"unused-import\"]\n",
+    );
+    write(
+        dir.path(),
+        "main.jl",
+        "module M\ninclude(\"imports.jl\")\ninclude(\"nested.jl\")\nend\n",
+    );
+    write(dir.path(), "imports.jl", "using Base: sin, cos\n");
+    write(dir.path(), "nested.jl", "include(\"use.jl\")\n");
+    write(dir.path(), "use.jl", "f(x) = sin(x)\n");
+    for args in [vec!["imports.jl"], vec!["--fix", "imports.jl"], vec!["."]] {
+        let findings = lint(dir.path(), &args);
+        assert_eq!(findings.len(), 1, "{args:?}: {findings:#?}");
+        assert!(findings[0].to_string().contains("`cos`"), "{findings:#?}");
+    }
+}
+
+#[test]
+fn unused_import_keeps_entry_points_modules_and_locals_separate() {
+    let dir = project(&["main.jl", "other.jl"]);
+    write(
+        dir.path(),
+        "fatou.toml",
+        "[project]\nentry-points = [\"main.jl\", \"other.jl\"]\n[lint]\nselect = [\"unused-import\"]\n",
+    );
+    write(
+        dir.path(),
+        "main.jl",
+        "module A\ninclude(\"imports.jl\")\ninclude(\"use.jl\")\nend\nmodule B\ninclude(\"imports.jl\")\ng(x) = cos(x)\nend\n",
+    );
+    write(dir.path(), "other.jl", "f(x) = tan(x)\n");
+    write(dir.path(), "imports.jl", "using Base: sin, cos, tan\n");
+    write(dir.path(), "use.jl", "f(sin, x) = sin(x)\n");
+    let findings = lint(dir.path(), &["imports.jl"]);
+    assert_eq!(findings.len(), 2, "{findings:#?}");
+    assert!(findings.iter().any(|d| d.to_string().contains("`sin`")));
+    assert!(findings.iter().any(|d| d.to_string().contains("`tan`")));
+}
+
+#[test]
+fn unused_import_withholds_findings_for_incomplete_include_contexts() {
+    for uncertain in [
+        "include(path)\n",
+        "include(\"missing.jl\")\n",
+        "include(\"main.jl\")\n",
+        "eval(code)\n",
+        "function broken(\n",
+    ] {
+        let dir = project(&["main.jl"]);
+        write(
+            dir.path(),
+            "fatou.toml",
+            "[project]\nentry-points = [\"main.jl\"]\n[lint]\nselect = [\"unused-import\"]\n",
+        );
+        write(
+            dir.path(),
+            "main.jl",
+            "include(\"imports.jl\")\ninclude(\"uncertain.jl\")\n",
+        );
+        write(dir.path(), "imports.jl", "using Base: sin\n");
+        write(dir.path(), "uncertain.jl", uncertain);
+        assert!(lint(dir.path(), &["imports.jl"]).is_empty(), "{uncertain}");
+    }
+}
+
+#[test]
+fn unused_import_counts_cross_file_import_forms_and_hygienic_uses() {
+    let dir = project(&["main.jl"]);
+    write(
+        dir.path(),
+        "fatou.toml",
+        "[project]\nentry-points = [\"main.jl\"]\n[lint]\nselect = [\"unused-import\"]\n",
+    );
+    write(
+        dir.path(),
+        "main.jl",
+        "include(\"imports.jl\")\ninclude(\"use.jl\")\n",
+    );
+    for (imports, uses) in [
+        ("import Base as B\n", "f(x) = B.sin(x)\n"),
+        ("using Base: sin as s\n", "f(x) = s(x)\n"),
+        ("using Base: sin\n", "export sin\n"),
+        ("using Base: sin\n", "public sin\n"),
+        ("import Base: sin\n", "sin(::MyType) = 1\n"),
+        ("import Base: +\n", "f(x, y) = x + y\n"),
+        ("import Base: +\n", "+(::MyType, ::MyType) = 1\n"),
+        ("using Base: @time\n", "f(x) = @time x\n"),
+        ("using Base: @time\n", "f(x) = :(@time x)\n"),
+        ("using Unitful: @u_str\n", "f() = u\"ns\"\n"),
+        ("using S: median\n", "f() = :(median(x))\n"),
+        ("using S: median\n", "macro m(x)\n:(median($x))\nend\n"),
+    ] {
+        write(dir.path(), "imports.jl", imports);
+        write(dir.path(), "use.jl", uses);
+        assert!(
+            lint(dir.path(), &["imports.jl"]).is_empty(),
+            "{imports}{uses}"
+        );
+    }
+}
+
+#[test]
+fn unused_import_preserves_suppressions_while_include_usage_is_unknown() {
+    let dir = project(&["main.jl"]);
+    write(
+        dir.path(),
+        "fatou.toml",
+        "[project]\nentry-points = [\"main.jl\"]\n[lint]\nselect = [\"unused-import\", \"outdated-suppression\"]\n",
+    );
+    write(
+        dir.path(),
+        "main.jl",
+        "include(\"imports.jl\")\ninclude(\"unknown.jl\")\n",
+    );
+    write(
+        dir.path(),
+        "imports.jl",
+        "# fatou-ignore unused-import: consumed in included code\nusing Base: sin\n",
+    );
+    write(dir.path(), "unknown.jl", "include(path)\n");
+    assert!(lint(dir.path(), &["imports.jl"]).is_empty());
+    write(dir.path(), "unknown.jl", "f(x) = sin(x)\n");
+    let findings = lint(dir.path(), &["imports.jl"]);
+    assert_eq!(findings.len(), 1, "{findings:#?}");
+    assert_eq!(findings[0]["rule"], "outdated-suppression");
+}
+
+#[test]
+fn package_unused_import_cli_and_fix_use_the_current_include_closure() {
+    let dir = project(&[]);
+    write(
+        dir.path(),
+        "fatou.toml",
+        "[lint]\nselect = [\"unused-import\"]\n",
+    );
+    write(
+        dir.path(),
+        "Project.toml",
+        "name = \"MyPkg\"\nuuid = \"00000000-0000-0000-0000-000000000001\"\n",
+    );
+    write(
+        dir.path(),
+        "src/MyPkg.jl",
+        "module MyPkg\ninclude(\"imports.jl\")\ninclude(\"use.jl\")\nend\n",
+    );
+    write(dir.path(), "src/imports.jl", "using Base: sin, cos\n");
+    write(dir.path(), "src/use.jl", "f(x) = sin(x)\n");
+    for args in [vec!["src/imports.jl"], vec!["--fix", "src/imports.jl"]] {
+        let findings = lint(dir.path(), &args);
+        assert_eq!(findings.len(), 1, "{args:?}: {findings:#?}");
+        assert!(findings[0].to_string().contains("`cos`"));
+    }
 }

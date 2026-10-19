@@ -9,7 +9,7 @@ use crate::ast::{AstNode, AstToken, CallExpr, MacroCall};
 use crate::incremental::normalize_path;
 use crate::index::ModuleUsing;
 use crate::resolve::{ModulePath, PackageSource, module_path_unresolvable};
-use crate::semantic::{BindingKind, LoadKind, SemanticModel};
+use crate::semantic::{Access, BindingKind, LoadKind, SemanticModel};
 use crate::syntax::SyntaxNode;
 use smol_str::SmolStr;
 
@@ -66,9 +66,12 @@ impl DefinitionEffects {
 pub struct ScriptModule {
     pub bindings: BTreeSet<SmolStr>,
     pub usings: Vec<ModuleUsing>,
+    /// Potential uses of module globals, with `@` retained for macros. Local
+    /// and captured bindings do not use a module's imports.
+    pub reads: BTreeSet<SmolStr>,
 }
 
-/// A file's contribution, independent of byte offsets and function bodies.
+/// A file's contribution, independent of byte offsets and literal values.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ScriptFile {
     pub modules: BTreeMap<ModulePath, ScriptModule>,
@@ -106,12 +109,48 @@ impl ScriptFile {
                 } else {
                     binding.name.clone()
                 };
-                out.modules
+                let module = out
+                    .modules
                     .entry(model.enclosing_module_path(binding.scope))
-                    .or_default()
-                    .bindings
-                    .insert(name);
+                    .or_default();
+                module.bindings.insert(name.clone());
+                if binding.read {
+                    module.reads.insert(name);
+                }
             }
+        }
+        for ident in model.idents() {
+            if ident.access == Access::Write
+                || ident.binding.is_some_and(|binding| {
+                    !model.scope(model.binding(binding).scope).kind.is_global()
+                })
+            {
+                continue;
+            }
+            let name = if ident.is_macro {
+                format!("@{}", ident.name).into()
+            } else {
+                ident.name.clone()
+            };
+            out.modules
+                .entry(model.enclosing_module_path(ident.scope))
+                .or_default()
+                .reads
+                .insert(name);
+        }
+        for export in model.exports() {
+            out.modules
+                .entry(model.enclosing_module_path(export.scope))
+                .or_default()
+                .reads
+                .insert(export.name.clone());
+        }
+        for (scope, name) in model.potential_import_reads() {
+            out.modules
+                .entry(model.enclosing_module_path(*scope))
+                .or_default()
+                .reads
+                .insert(name.clone());
         }
         for load in model.module_loads() {
             if load.kind == LoadKind::Using && load.items.is_none() {
@@ -235,6 +274,7 @@ impl ScriptProgram {
             let dest = self.modules.entry(path).or_default();
             dest.bindings.extend(module.bindings.iter().cloned());
             dest.usings.extend(module.usings.iter().cloned());
+            dest.reads.extend(module.reads.iter().cloned());
         }
         for event in &projection.events {
             let edge = match event {
@@ -301,6 +341,30 @@ pub struct ScriptAnalysis {
 }
 
 impl ScriptAnalysis {
+    pub fn import_context_complete(&self, path: &Path) -> bool {
+        !self.pending
+            && self.programs.iter().all(|program| !program.incomplete)
+            && !self.contexts(path).is_empty()
+    }
+
+    /// An import is unused only if every entry and host module containing it
+    /// has a complete include closure and none of those modules uses its name.
+    pub fn import_is_unused(&self, path: &Path, module: &[SmolStr], name: &str) -> bool {
+        if !self.import_context_complete(path) {
+            return false;
+        }
+        let contexts = self.contexts(path);
+        !contexts.is_empty()
+            && contexts.iter().all(|context| {
+                let full_path: ModulePath = context.host.iter().chain(module).cloned().collect();
+                context
+                    .program
+                    .modules
+                    .get(&full_path)
+                    .is_some_and(|module| !module.reads.contains(name))
+            })
+    }
+
     /// Confirmed failures only; an unfinished load is not evidence of absence.
     pub fn failed_includes(&self) -> BTreeMap<PathBuf, BTreeSet<String>> {
         let mut failures = BTreeMap::<_, BTreeSet<_>>::new();

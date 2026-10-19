@@ -146,12 +146,12 @@ style remains project policy rather than language correctness.
   remain opaque, so `duplicate-method` and `call-arity` withhold findings when
   expansion could change the signature.
 
-- [ ] Make `unused-import` account for uses in the same module's included
-  files through the shared project model. An entry module that includes
-  `imports.jl` containing `using Base: sin` and `use.jl` containing
-  `f(x) = sin(x)` incorrectly reports `sin` as unused, even with the entry
-  file declared in `[project] entry-points`. Withhold findings when the
-  include context cannot establish that an import is unused.
+- [x] `unused-import` accounts for same-module uses across included files
+  through shared project projections, in package workspaces and declared
+  script entry points. Aliases, operators, macros, method extensions, exports,
+  and quoted uses count, while local shadows and unrelated modules stay
+  separate. Incomplete include contexts withhold findings. CLI fixing and
+  live LSP diagnostics share the same usage model.
 
 - [ ] Add an opt-in rule for functions that read known nonconstant, untyped
   globals (#109). Use the shared resolver to distinguish global bindings from

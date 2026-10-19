@@ -43,7 +43,7 @@ warning: unused-binding
 
 ## `unused-import`
 
-Flag an explicitly imported name that is never used: `import X`, `import X as Y`, and the colon-item forms `using X: a` / `import X: a`. The whole-module `using X` form is exempt, since it attaches exports that resolve elsewhere. A qualified use (`X.f`) or a re-`export` counts as a use.
+Flag an explicitly imported name that is never used: `import X`, `import X as Y`, and the colon-item forms `using X: a` / `import X: a`. The whole-module `using X` form is exempt, since it attaches exports that resolve elsewhere. A qualified use (`X.f`) or a re-`export` counts as a use. Uses in the same module's included files also count. Incomplete include contexts withhold findings rather than treating missing uses as proof that an import is unused.
 
 `sortperm` is imported but never referenced:
 

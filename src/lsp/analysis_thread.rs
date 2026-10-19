@@ -145,6 +145,7 @@ pub(crate) fn spawn_analysis_thread(
                 push_diagnostics,
                 published_graph_files: HashSet::new(),
                 package_graph_diags: BTreeMap::new(),
+                import_projections: HashMap::new(),
             };
             worker.run(&analysis_rx, &read_rx, &library_rx, &sync_rx, &done_rx);
         })
@@ -157,6 +158,7 @@ pub(crate) fn spawn_analysis_thread(
 struct AnalyzeDone {
     uri: Uri,
     version: i32,
+    import_projection: Option<(PathBuf, Arc<crate::project::scripts::ScriptFile>)>,
 }
 
 /// The single in-flight read-phase analysis, if any.
@@ -245,6 +247,8 @@ struct AnalysisWorker {
     /// a file whose problems are fixed gets an explicit empty publish to clear it.
     published_graph_files: HashSet<Uri>,
     package_graph_diags: BTreeMap<PathBuf, Vec<Diagnostic>>,
+    /// Range-free definitions and uses last analyzed for each package buffer.
+    import_projections: HashMap<PathBuf, Arc<crate::project::scripts::ScriptFile>>,
 }
 
 impl AnalysisWorker {
@@ -340,9 +344,7 @@ impl AnalysisWorker {
                     // in-flight analysis — a late `done` from a superseded one
                     // (older version) must not clear the new analysis.
                     guard("done", || {
-                        if matches!(&self.inflight, Some(f) if f.uri == done.uri && f.version == done.version) {
-                            self.inflight = None;
-                        }
+                        self.on_done(done);
                         self.try_dispatch();
                     });
                 }
@@ -370,6 +372,21 @@ impl AnalysisWorker {
         }
         if self.scripts.install(loaded, &mut self.db) {
             self.publish_graph_diagnostics();
+        }
+    }
+
+    fn on_done(&mut self, done: AnalyzeDone) {
+        if !matches!(&self.inflight, Some(f) if f.uri == done.uri && f.version == done.version) {
+            return;
+        }
+        self.inflight = None;
+        if let Some((path, projection)) = done.import_projection {
+            let previous = self
+                .import_projections
+                .insert(path, Arc::clone(&projection));
+            if previous.as_ref() != Some(&projection) {
+                let _ = self.out_tx.send(Outbound::DiagnosticsRefresh);
+            }
         }
     }
 
@@ -412,6 +429,9 @@ impl AnalysisWorker {
         let declared_before = self.declared_deps_of(path);
         self.db.revert_file_to_disk(path);
         self.scripts.closed_or_changed(path, &mut self.db);
+        if self.import_projections.remove(path).is_some() {
+            let _ = self.out_tx.send(Outbound::DiagnosticsRefresh);
+        }
         // Closing an unsaved `Project.toml` puts the disk copy back in charge,
         // which can change what the package declares.
         self.refresh_if_declared_deps_changed(path, declared_before);
@@ -571,6 +591,14 @@ impl AnalysisWorker {
         });
         let push = self.push_diagnostics;
         self.read_spawner.spawn(move || {
+            let import_projection = salsa::Cancelled::catch(AssertUnwindSafe(|| {
+                (rules.entry_points.is_empty()
+                    && rules.get(true).enabled().contains("unused-import")
+                    && snapshot.workspace_member(&path).is_some())
+                .then(|| (path.clone(), snapshot.import_projection(file)))
+            }))
+            .ok()
+            .flatten();
             if push {
                 let result = salsa::Cancelled::catch(AssertUnwindSafe(|| {
                     let mut diags =
@@ -598,7 +626,11 @@ impl AnalysisWorker {
             // `done` could let the analysis thread start a write that deadlocks
             // on this clone.
             drop(snapshot);
-            let _ = done_tx.send(AnalyzeDone { uri, version });
+            let _ = done_tx.send(AnalyzeDone {
+                uri,
+                version,
+                import_projection,
+            });
         });
     }
 
@@ -687,6 +719,7 @@ mod tests {
                 push_diagnostics: true,
                 published_graph_files: HashSet::new(),
                 package_graph_diags: BTreeMap::new(),
+                import_projections: HashMap::new(),
             }
         }
     }
@@ -696,6 +729,55 @@ mod tests {
         let a = uri_named("a.jl");
         let pending = HashMap::from([(a.clone(), 1)]);
         assert_eq!(decide(None, &pending, None), DispatchAction::Start(a));
+    }
+
+    #[test]
+    fn package_import_refreshes_follow_reads_and_ignore_stale_completions() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("use.jl");
+        let uri = super::super::uri::from_path(&path).unwrap();
+        let (out_tx, out_rx) = crossbeam_channel::unbounded();
+        let mut worker = AnalysisWorker {
+            out_tx,
+            ..AnalysisWorker::for_test()
+        };
+        let projection =
+            |source| Arc::new(crate::project::scripts::ScriptFile::parse(&path, source));
+        let first = projection("f(x) = sin(x) + 1\n");
+        let literals = projection("\nf(x) = sin(x) + 123\n");
+        let changed = projection("f(x) = cos(x) + 123\n");
+        for (version, projection, refresh) in [
+            (1, first, true),
+            (2, literals.clone(), false),
+            (3, changed, true),
+        ] {
+            worker.inflight = Some(InflightAnalyze {
+                uri: uri.clone(),
+                version,
+            });
+            worker.on_done(AnalyzeDone {
+                uri: uri.clone(),
+                version,
+                import_projection: Some((path.clone(), projection)),
+            });
+            assert_eq!(
+                out_rx
+                    .try_iter()
+                    .any(|out| matches!(out, Outbound::DiagnosticsRefresh)),
+                refresh
+            );
+        }
+        worker.inflight = Some(InflightAnalyze {
+            uri: uri.clone(),
+            version: 4,
+        });
+        worker.on_done(AnalyzeDone {
+            uri,
+            version: 2,
+            import_projection: Some((path, literals)),
+        });
+        assert!(worker.inflight.is_some());
+        assert!(out_rx.try_recv().is_err());
     }
 
     #[test]

@@ -16,6 +16,55 @@ fn probe_script_globals(db: &dyn IncrementalDb, file: SourceFile) -> usize {
 static SCRIPT_PROBE_RUNS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 #[test]
+fn package_import_usage_tracks_live_reads_and_backdates_literal_edits() {
+    use fatou::index::harvest_package_named;
+    use fatou::project::scripts::ScriptAnalysis;
+    use std::collections::BTreeMap;
+    use std::sync::Arc;
+
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir(dir.path().join("src")).unwrap();
+    let entry = dir.path().join("src/M.jl");
+    let imports = dir.path().join("src/imports.jl");
+    let uses = dir.path().join("src/use.jl");
+    std::fs::write(
+        &entry,
+        "module M\ninclude(\"imports.jl\")\ninclude(\"use.jl\")\nend\n",
+    )
+    .unwrap();
+    std::fs::write(&imports, "using Base: sin, cos\n").unwrap();
+    std::fs::write(&uses, "f(x) = sin(x) + 1\n").unwrap();
+    let mut db = IncrementalDatabase::default();
+    assert!(db.snapshot().workspace_import_usage().programs.is_empty());
+    db.set_library(
+        BTreeMap::from([("M".into(), Arc::new(harvest_package_named(dir.path(), "M")))]),
+        BTreeMap::from([("M".into(), dir.path().to_path_buf())]),
+        vec!["M".into()],
+    );
+    db.seed_workspace_members();
+    let before = Arc::clone(&db.snapshot().workspace_import_usage().programs[0]);
+    db.upsert_file(&uses, "\nf(x) = sin(x) + 12345\n");
+    assert!(Arc::ptr_eq(
+        &before,
+        &db.snapshot().workspace_import_usage().programs[0]
+    ));
+    db.upsert_file(&uses, "f(x) = cos(x) + 12345\n");
+    let scripts = ScriptAnalysis {
+        programs: db.snapshot().workspace_import_usage().programs,
+        pending: false,
+    };
+    assert!(scripts.import_is_unused(&imports, &[], "sin"));
+    assert!(!scripts.import_is_unused(&imports, &[], "cos"));
+    db.upsert_file(&uses, "function broken(\n");
+    let scripts = ScriptAnalysis {
+        programs: db.snapshot().workspace_import_usage().programs,
+        pending: false,
+    };
+    assert!(!scripts.import_is_unused(&imports, &[], "sin"));
+    assert!(!scripts.import_is_unused(&imports, &[], "cos"));
+}
+
+#[test]
 fn script_include_failures_distinguish_pending_failed_and_repaired_sources() {
     use std::collections::BTreeMap;
     use std::sync::Arc;

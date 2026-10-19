@@ -203,6 +203,24 @@ pub fn check_paths_with_config(
         .map(|(path, green, _)| (path.clone(), SyntaxNode::new_root(green.clone())))
         .collect();
     let include_problems = include_problems(&seeds);
+    let import_usage = rules
+        .enabled()
+        .contains("unused-import")
+        .then(|| {
+            package_import_usage(
+                project,
+                &parsed
+                    .iter()
+                    .map(|(path, green, _)| {
+                        (
+                            crate::incremental::normalize_path(path),
+                            Arc::from(green.to_string()),
+                        )
+                    })
+                    .collect(),
+            )
+        })
+        .flatten();
 
     let reports: Vec<LintFileReport> = parsed
         .par_iter()
@@ -218,7 +236,15 @@ pub fn check_paths_with_config(
                 }
                 _ => &rules,
             };
-            check_parsed(Some(path), &root, diagnostics, rules, includes, project)
+            check_parsed(
+                Some(path),
+                &root,
+                diagnostics,
+                rules,
+                includes,
+                project,
+                import_usage.as_ref(),
+            )
         })
         .collect();
 
@@ -294,6 +320,15 @@ pub fn check_text(
     project: ProjectContext<'_>,
 ) -> LintFileReport {
     let parsed = parse(text);
+    let import_usage = if rules.enabled().contains("unused-import") {
+        let buffers = path
+            .map(|path| (crate::incremental::normalize_path(path), Arc::from(text)))
+            .into_iter()
+            .collect();
+        package_import_usage(project, &buffers)
+    } else {
+        None
+    };
     let include_problems = match path {
         // A pathless document has no base directory to resolve includes
         // against; the include-graph rules stay silent.
@@ -310,13 +345,46 @@ pub fn check_text(
         rules,
         &include_problems,
         project,
+        import_usage.as_ref(),
     )
+}
+
+fn package_import_usage(
+    project: ProjectContext<'_>,
+    buffers: &BTreeMap<PathBuf, Arc<str>>,
+) -> Option<crate::project::scripts::ScriptAnalysis> {
+    let library = match project {
+        ProjectContext::Harvested(library) => library,
+        ProjectContext::Scripts {
+            library: Some(library),
+            ..
+        } => library,
+        _ => return None,
+    };
+    let entries: Vec<_> = library
+        .workspaces
+        .iter()
+        .filter_map(|name| {
+            Some(
+                library
+                    .roots
+                    .get(name)?
+                    .join("src")
+                    .join(format!("{name}.jl")),
+            )
+        })
+        .collect();
+    let sources = crate::script_loading::load_sources(&entries, buffers);
+    Some(crate::project::scripts::ScriptAnalysis::from_sources(
+        &entries, &sources,
+    ))
 }
 
 /// Core per-file pass over an already-parsed file: run rules on a clean tree
 /// (suppressed findings are dropped inside the rules runner). Parse-error
 /// pseudo-diagnostics short-circuit before rules or suppression run, so
 /// `parse-error` is not suppressible — by design.
+#[allow(clippy::too_many_arguments)]
 fn check_parsed(
     path: Option<&Path>,
     root: &SyntaxNode,
@@ -324,6 +392,7 @@ fn check_parsed(
     rules: &ResolvedRules,
     includes: &[IncludeProblem],
     project: ProjectContext<'_>,
+    import_usage: Option<&crate::project::scripts::ScriptAnalysis>,
 ) -> LintFileReport {
     if !parse_diagnostics.is_empty() {
         let diagnostics = parse_diagnostics
@@ -352,12 +421,24 @@ fn check_parsed(
     // `undefined-name` is opt-in there), or a harvested project library plus
     // this file's workspace membership, which resolves cross-file names.
     let resolution = project.resolution_for(path);
+    let import_usage = import_usage.filter(|usage| {
+        resolution.as_ref().is_some_and(|r| r.workspace.is_some())
+            || path.is_some_and(|path| usage.applies(path))
+    });
     let scripts = match project {
         ProjectContext::Scripts { scripts, .. } => Some(scripts),
         _ => None,
     };
-    let diagnostics =
-        lint_parsed_with_scripts(path, root, &model, rules, resolution, includes, scripts);
+    let diagnostics = lint_parsed_with_import_usage(
+        path,
+        root,
+        &model,
+        rules,
+        resolution,
+        includes,
+        scripts,
+        import_usage,
+    );
 
     let count = diagnostics.iter().filter(|d| !d.is_notice()).count();
     let status = if count == 0 {
@@ -411,10 +492,29 @@ pub fn lint_parsed_with_scripts(
     includes: &[IncludeProblem],
     scripts: Option<&crate::project::scripts::ScriptAnalysis>,
 ) -> Vec<Diagnostic> {
+    lint_parsed_with_import_usage(
+        path, root, model, rules, resolution, includes, scripts, None,
+    )
+}
+
+/// Package include usage shares the project model without changing resolution
+/// contexts or enabling script defaults.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn lint_parsed_with_import_usage(
+    path: Option<&Path>,
+    root: &SyntaxNode,
+    model: &SemanticModel,
+    rules: &ResolvedRules,
+    resolution: Option<ResolutionContext<'_>>,
+    includes: &[IncludeProblem],
+    scripts: Option<&crate::project::scripts::ScriptAnalysis>,
+    import_usage: Option<&crate::project::scripts::ScriptAnalysis>,
+) -> Vec<Diagnostic> {
     let suppressions = SuppressionMap::build(root);
     let ctx = RuleContext::new(path, root, model)
         .with_resolution(resolution)
         .with_scripts(scripts)
+        .with_import_usage(import_usage)
         .with_includes(includes)
         .with_julia_target(rules.julia_target())
         .with_config(rules.rules_config())

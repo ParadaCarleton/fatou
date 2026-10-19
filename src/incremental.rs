@@ -180,6 +180,38 @@ pub fn script_program(
     ))
 }
 
+/// Current package include closures, including module uses from live buffers.
+/// Range-free file projections keep literal and position edits from rebuilding
+/// this result, while changes to global reads refresh dependent diagnostics.
+#[salsa::tracked(returns(ref))]
+fn workspace_import_programs(
+    db: &dyn IncrementalDb,
+    files: WorkspaceFiles,
+    library: LibraryIndex,
+) -> Vec<Arc<project::scripts::ScriptProgram>> {
+    let by_path: BTreeMap<_, _> = files
+        .files(db)
+        .iter()
+        .filter_map(|&file| Some((normalize_path(file.path(db).as_deref()?), file)))
+        .collect();
+    library
+        .workspaces(db)
+        .iter()
+        .filter_map(|name| {
+            let entry = library
+                .roots(db)
+                .0
+                .get(name)?
+                .join("src")
+                .join(format!("{name}.jl"));
+            Some(Arc::new(project::scripts::ScriptProgram::build(
+                &entry,
+                |path| Some(Arc::clone(script_file(db, *by_path.get(path)?))),
+            )))
+        })
+        .collect()
+}
+
 /// The cached parse of a file. The `GreenNode` is not `Eq`, so
 /// [`parsed_document`] is `no_eq`: salsa never compares parse outputs and
 /// relies purely on input (text) change detection to invalidate. Sound because
@@ -1544,6 +1576,34 @@ impl IncrementalDatabase {
 pub struct Analysis(IncrementalDatabase);
 
 impl Analysis {
+    pub(crate) fn import_projection(&self, file: SourceFile) -> Arc<project::scripts::ScriptFile> {
+        Arc::clone(script_file(&self.0, file))
+    }
+
+    pub fn workspace_import_usage(&self) -> project::scripts::ScriptAnalysis {
+        // Singleton creation is not a tracked dependency. Do not memoize the
+        // absence of inputs before the first workspace harvest installs them.
+        let Some(library) = LibraryIndex::try_get(&self.0) else {
+            return project::scripts::ScriptAnalysis {
+                pending: true,
+                ..Default::default()
+            };
+        };
+        if library.workspaces(&self.0).is_empty() {
+            return project::scripts::ScriptAnalysis::default();
+        }
+        let Some(files) = WorkspaceFiles::try_get(&self.0) else {
+            return project::scripts::ScriptAnalysis {
+                pending: true,
+                ..Default::default()
+            };
+        };
+        project::scripts::ScriptAnalysis {
+            programs: workspace_import_programs(&self.0, files, library).clone(),
+            pending: false,
+        }
+    }
+
     /// Resolve configured programs against tracked source, never disk. A
     /// configuration not loaded yet cannot establish absence of a name.
     pub fn scripts(&self, entries: &[PathBuf]) -> project::scripts::ScriptAnalysis {

@@ -1,11 +1,11 @@
-//! `unused-import`: an explicitly imported name that is never used in the file.
+//! `unused-import`: an explicitly imported name that is never used in its module.
 //!
 //! Covers the forms that bind a *specific* name: `import X`, `import X as Y`,
 //! `using X: a`, and `import X: a` (each item, including its `as` alias). The
 //! whole-module `using X` form is deliberately exempt: it attaches `X`'s
-//! exports, which appear as bare free reads this file can't yet resolve (the
-//! package index is a later phase), so `X` looking "unread" says nothing about
-//! whether the import is used.
+//! exports, so `X` looking "unread" says nothing about whether the import is
+//! used. Shared project projections account for same-module uses across static
+//! includes; an incomplete include context cannot prove an import unused.
 //!
 //! A qualified use (`X.f()`) marks the module binding read, and a re-`export`
 //! marks the imported name read, so neither is a false positive.
@@ -26,7 +26,9 @@ impl Rule for UnusedImport {
          `import X as Y`, and the colon-item forms `using X: a` / `import X: a`. \
          The whole-module `using X` form is exempt, since it attaches exports \
          that resolve elsewhere. A qualified use (`X.f`) or a re-`export` counts \
-         as a use."
+         as a use. Uses in the same module's included files also count. Incomplete \
+         include contexts withhold findings rather than treating missing uses \
+         as proof that an import is unused."
     }
 
     fn examples(&self) -> &'static [Example] {
@@ -37,12 +39,25 @@ impl Rule for UnusedImport {
     }
 
     fn check_file(&self, ctx: &RuleContext<'_>, sink: &mut Vec<Diagnostic>) {
+        if !ctx.trusts_import_usage() {
+            return;
+        }
         for binding in ctx.model.bindings() {
             if binding.read || binding.kind != BindingKind::Import {
                 continue;
             }
             if is_whole_module_using(ctx, binding.def_range) {
                 continue;
+            }
+            if let Some(usage) = ctx.scripts.or(ctx.import_usage) {
+                let Some(path) = ctx.path else { continue };
+                if !usage.import_is_unused(
+                    path,
+                    &ctx.model.enclosing_module_path(binding.scope),
+                    &binding.name,
+                ) {
+                    continue;
+                }
             }
             sink.push(Diagnostic::new(
                 self.id(),

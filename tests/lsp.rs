@@ -7081,6 +7081,113 @@ fn script_entry_points_enable_default_diagnostics_after_loading() {
 }
 
 #[test]
+fn unused_imports_refresh_after_cross_file_unsaved_edits_and_close() {
+    let _env = ENV_LOCK.lock().unwrap();
+    for scripts in [true, false] {
+        let dir = TempDir::new("fatou-lsp-unused-imports");
+        let depot = TempDir::new("fatou-lsp-unused-imports-depot");
+        let _guard = isolate_env(&dir, &depot);
+        let (entry, sources, config) = if scripts {
+            (
+                "main.jl",
+                dir.path.clone(),
+                "[project]\nentry-points = [\"main.jl\"]\n[lint]\nselect = [\"unused-import\"]\n",
+            )
+        } else {
+            write_file(
+                &dir.path.join("Project.toml"),
+                "name = \"MyPkg\"\nuuid = \"00000000-0000-0000-0000-000000000001\"\n",
+            );
+            (
+                "src/MyPkg.jl",
+                dir.path.join("src"),
+                "[lint]\nselect = [\"unused-import\"]\n",
+            )
+        };
+        write_file(&dir.path.join("fatou.toml"), config);
+        write_file(
+            &dir.path.join(entry),
+            "module MyPkg\ninclude(\"imports.jl\")\ninclude(\"use.jl\")\nend\n",
+        );
+        write_file(&sources.join("imports.jl"), "using Base: sin, cos\n");
+        write_file(&sources.join("use.jl"), "f(x) = sin(x)\n");
+        let (server, client) = Connection::memory();
+        let thread = std::thread::spawn(move || fatou::lsp::serve(&server).unwrap());
+        initialize_with_root(&client, &file_uri(&dir.path));
+        let imports = file_uri(&sources.join("imports.jl"));
+        let uses = file_uri(&sources.join("use.jl"));
+        let expect_unused = |name: &str| {
+            loop {
+                let published = recv_publish_for(&client, &imports);
+                if published.diagnostics.len() == 1
+                    && published.diagnostics[0].code
+                        == Some(NumberOrString::String("unused-import".into()))
+                    && published.diagnostics[0]
+                        .message
+                        .contains(&format!("`{name}`"))
+                {
+                    assert_eq!(published.diagnostics[0].range.start.line, 0);
+                    break;
+                }
+            }
+        };
+        open_document(&client, &imports, "using Base: sin, cos\n");
+        expect_unused("cos");
+        open_document(&client, &uses, "f(x) = cos(x)\n");
+        expect_unused("sin");
+        client
+            .sender
+            .send(Message::Notification(Notification {
+                method: "textDocument/didChange".into(),
+                params: serde_json::json!({"textDocument": {"uri": uses, "version": 2},
+                "contentChanges": [{"text": "f(x) = sin(x) + cos(x)\n"}]}),
+            }))
+            .unwrap();
+        loop {
+            if recv_publish_for(&client, &imports).diagnostics.is_empty() {
+                break;
+            }
+        }
+        client
+            .sender
+            .send(Message::Notification(Notification {
+                method: "textDocument/didClose".into(),
+                params: serde_json::json!({"textDocument": {"uri": uses}}),
+            }))
+            .unwrap();
+        expect_unused("cos");
+        if !scripts {
+            // Live include edits can discover a file before a harvest seeds
+            // its membership. That partial closure cannot prove it unused.
+            let added_path = sources.join("added.jl");
+            write_file(&added_path, "using Base: sin\n");
+            let entry_uri = file_uri(&dir.path.join(entry));
+            open_document(
+                &client,
+                &entry_uri,
+                "module MyPkg\ninclude(\"imports.jl\")\ninclude(\"use.jl\")\ninclude(\"added.jl\")\nend\n",
+            );
+            loop {
+                if recv_publish_for(&client, &entry_uri).version == Some(1) {
+                    break;
+                }
+            }
+            let added_uri = file_uri(&added_path);
+            open_document(&client, &added_uri, "using Base: sin\n");
+            loop {
+                let published = recv_publish_for(&client, &added_uri);
+                if published.version == Some(1) {
+                    assert!(published.diagnostics.is_empty(), "{published:?}");
+                    break;
+                }
+            }
+        }
+        drop(client);
+        thread.join().unwrap();
+    }
+}
+
+#[test]
 fn script_include_errors_follow_live_edits_and_unopened_dependencies() {
     let dir = TempDir::new("fatou-script-include-errors");
     write_file(

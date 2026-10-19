@@ -108,6 +108,7 @@ pub struct SemanticModel {
     module_loads: Vec<ModuleLoad>,
     exports: Vec<ExportEntry>,
     qualified_reads: Vec<QualifiedRead>,
+    potential_import_reads: Vec<(ScopeId, SmolStr)>,
     documentation: Vec<SemanticDoc>,
 }
 
@@ -292,6 +293,12 @@ impl SemanticModel {
     /// `file_qualified_reads` firewall query.)
     pub fn qualified_reads(&self) -> &[QualifiedRead] {
         &self.qualified_reads
+    }
+
+    /// Operators, literal macros, and quoted names can use imports from other
+    /// files without contributing ordinary evaluated identifier reads.
+    pub(crate) fn potential_import_reads(&self) -> &[(ScopeId, SmolStr)] {
+        &self.potential_import_reads
     }
 
     /// Documentation attachments in source order, including opaque and invalid

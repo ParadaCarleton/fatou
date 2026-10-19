@@ -341,8 +341,8 @@ f(
             report.diagnostics
         );
     }
-    // The reference rule needs project resolution, so like every other
-    // resolution rule it is opt-in and the default lint pays for no harvest.
+    // The reference rule remains opt-in even when other enabled rules need
+    // project resolution.
     assert!(
         !report
             .diagnostics
@@ -690,6 +690,16 @@ fn unused_import_counts_qualified_and_direct_use() {
 #[test]
 fn unused_import_counts_reexport_as_use() {
     assert_eq!(count("unused-import", "import A: foo\nexport foo\n"), 0);
+}
+
+#[test]
+fn unused_import_withholds_findings_without_a_complete_include_context() {
+    for uncertain in ["include(\"use.jl\")", "include(path)", "eval(code)"] {
+        assert_eq!(
+            count("unused-import", &format!("using Base: sin\n{uncertain}\n")),
+            0
+        );
+    }
 }
 
 #[test]

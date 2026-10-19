@@ -120,6 +120,9 @@ impl Rule for OutdatedSuppression {
 /// Each arm mirrors a bail-out in the rules themselves, so a rule that answers
 /// "not enough context to say" is never read as "nothing to say".
 fn verdict_is_trustworthy(rule: &str, ctx: &RuleContext<'_>) -> bool {
+    if rule == "unused-import" && !ctx.trusts_import_usage() {
+        return false;
+    }
     // The floor, and deliberately one question rather than a list of rules:
     // *any* rule may open by asking what a name means
     // (`RuleContext::resolves_to_base` is the standard first move for an idiom

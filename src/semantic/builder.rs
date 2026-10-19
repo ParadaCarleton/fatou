@@ -716,6 +716,9 @@ impl Builder {
             return;
         };
         let name = format!("{}{}", prefix.text(), suffix);
+        self.model
+            .potential_import_reads
+            .push((scope, format!("@{name}").into()));
         if let Some(b) = self.resolve_macro_read(&name, scope) {
             self.model.bindings[b.0 as usize].read = true;
             self.push_ident(
@@ -1012,6 +1015,11 @@ impl Builder {
 
     /// Mark an imported name as used when a same-named definition extends it.
     fn mark_import_extended(&mut self, name: &str, scope: ScopeId) {
+        if self.scope(scope).kind.is_global() {
+            self.model
+                .potential_import_reads
+                .push((scope, SmolStr::new(name)));
+        }
         if let Some(b) = self.find_import(name, scope) {
             self.model.bindings[b.0 as usize].read = true;
         }
@@ -1020,13 +1028,16 @@ impl Builder {
     /// Mark the import behind a used operator token, if any. Operators
     /// referenced infix (`a == b`), prefix (`-x`), or as a value (`(==)`,
     /// `reduce(+, xs)`) name their imported definition, but the tokens are
-    /// never `NAME` reads. A no-op when the operator isn't imported.
+    /// never `NAME` reads. Retain the name for imports in included siblings.
     fn mark_operator_imports(&mut self, node: &SyntaxNode, scope: ScopeId) {
         for token in node
             .children_with_tokens()
             .filter_map(|e| e.into_token())
             .filter(|t| t.kind().is_operator())
         {
+            self.model
+                .potential_import_reads
+                .push((scope, SmolStr::new(token.text())));
             if let Some(b) = self.find_import(token.text(), scope) {
                 self.model.bindings[b.0 as usize].read = true;
             }
@@ -2409,11 +2420,19 @@ impl Builder {
                 rowan::NodeOrToken::Node(n) => self.walk_quoted(&n, scope),
                 // A name or operator quoted here references, by macro hygiene,
                 // the enclosing module's binding, so mark any matching import
-                // read. Only the import's flag is touched; no ident is recorded,
-                // leaving other resolution untouched.
+                // read. Keep it separate from evaluated identifier reads so
+                // other resolution consumers continue to skip quoted code.
                 rowan::NodeOrToken::Token(t)
                     if t.kind() == SyntaxKind::IDENT || t.kind().is_operator() =>
                 {
+                    let name = if node.kind() == SyntaxKind::MACRO_NAME
+                        && macro_name_ident(node).as_ref() == Some(&t)
+                    {
+                        format!("@{}", t.text()).into()
+                    } else {
+                        SmolStr::new(t.text())
+                    };
+                    self.model.potential_import_reads.push((scope, name));
                     if let Some(b) = self.find_import(t.text(), scope) {
                         self.model.bindings[b.0 as usize].read = true;
                     }

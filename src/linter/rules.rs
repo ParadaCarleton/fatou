@@ -163,8 +163,8 @@ pub fn all_rules() -> Vec<Box<dyn Rule>> {
     ]
 }
 
-/// The rules that need a project-wide name-resolution context to be sound, and
-/// report nothing when the required context is absent. The CLI harvests the
+/// The rules whose full behavior needs a project-wide resolution context.
+/// They withhold findings that require unavailable context. The CLI harvests the
 /// environment when any one is effectively enabled; the language server adds
 /// the default-off members for workspace files, where it carries the context;
 /// and `outdated-suppression` declines to call a directive naming one of them
@@ -172,6 +172,7 @@ pub fn all_rules() -> Vec<Box<dyn Rule>> {
 ///
 /// The single list — every consumer reads it rather than repeating it.
 pub const RESOLUTION_RULES: &[&str] = &[
+    "unused-import",
     "undefined-name",
     "call-arity",
     "unresolved-import",
@@ -223,6 +224,9 @@ pub struct RuleContext<'a> {
     pub resolution: Option<ResolutionContext<'a>>,
     /// Explicit programs containing this file, kept separate by entry and host.
     pub scripts: Option<&'a crate::project::scripts::ScriptAnalysis>,
+    /// Include closures used to prove that an import is unused. Package
+    /// closures do not opt files into script name resolution or defaults.
+    pub import_usage: Option<&'a crate::project::scripts::ScriptAnalysis>,
     /// This file's include-graph problems, precomputed by the lint driver (see
     /// [`crate::linter::include_graph`]). Empty leaves the include-graph rules
     /// (`missing-include-file`, `include-cycle`) silent — the language server
@@ -307,6 +311,7 @@ impl<'a> RuleContext<'a> {
             model,
             resolution: None,
             scripts: None,
+            import_usage: None,
             includes: &[],
             julia_target: None,
             config: &DEFAULT_RULES_CONFIG,
@@ -330,6 +335,15 @@ impl<'a> RuleContext<'a> {
     ) -> Self {
         self.scripts =
             scripts.filter(|scripts| self.path.is_some_and(|path| scripts.applies(path)));
+        self
+    }
+
+    #[must_use]
+    pub fn with_import_usage(
+        mut self,
+        usage: Option<&'a crate::project::scripts::ScriptAnalysis>,
+    ) -> Self {
+        self.import_usage = usage;
         self
     }
 
@@ -411,6 +425,25 @@ impl<'a> RuleContext<'a> {
     /// The shared per-file soundness scan (see [`FileScan`]).
     pub(crate) fn file_scan(&self) -> &FileScan {
         self.cache.scan.get_or_init(|| FileScan::collect(self.root))
+    }
+
+    /// Whether missing module uses can prove an import unused. A package
+    /// index alone describes definitions, so it cannot establish absence of
+    /// reads in included files.
+    pub(crate) fn trusts_import_usage(&self) -> bool {
+        if let Some(usage) = self.scripts.or(self.import_usage) {
+            return self
+                .path
+                .is_some_and(|path| usage.import_context_complete(path));
+        }
+        let scan = self.file_scan();
+        !scan.calls_eval
+            && !scan.literal_include
+            && !scan.dynamic_include
+            && self
+                .resolution
+                .as_ref()
+                .is_none_or(|r| r.workspace.is_none())
     }
 
     /// Static docstrings parsed and classified once for all documentation rules.

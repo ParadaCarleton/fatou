@@ -619,8 +619,17 @@ fn run_lint_fix(
         .par_iter()
         .map(|path| {
             let original = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
-            let outcome = if entry_points.is_empty() {
+            let outcome = if entry_points.is_empty() && library.is_none() {
                 linter::fix_source(Some(path), &original, &config.lint, unsafe_fixes)
+            } else if entry_points.is_empty() {
+                linter::fix::fix_with(&original, unsafe_fixes, |text| {
+                    linter::check::check_text(
+                        Some(path),
+                        text,
+                        &rules,
+                        linter::ProjectContext::Harvested(library.expect("library is present")),
+                    )
+                })
             } else {
                 let mut sources = script_sources.clone();
                 linter::fix::fix_with(&original, unsafe_fixes, |text| {
@@ -666,23 +675,21 @@ fn run_lint_fix(
         }
         remaining.extend(file_remaining);
     }
-    if !entry_points.is_empty() {
-        let scripts = fatou::script_loading::analyze(entry_points)?;
-        remaining = linter::check_paths_with_config(
-            &paths,
-            &config.lint,
-            exclude,
-            julia_target,
-            linter::ProjectContext::Scripts {
-                library,
-                scripts: &scripts,
-            },
-        )
-        .map_err(|error| error.to_string())?
-        .reports
-        .into_iter()
-        .flat_map(|report| report.diagnostics)
-        .collect();
+    if !entry_points.is_empty() || library.is_some() {
+        let scripts = (!entry_points.is_empty())
+            .then(|| fatou::script_loading::analyze(entry_points))
+            .transpose()?;
+        let project = match &scripts {
+            Some(scripts) => linter::ProjectContext::Scripts { library, scripts },
+            None => linter::ProjectContext::Harvested(library.expect("library is present")),
+        };
+        remaining =
+            linter::check_paths_with_config(&paths, &config.lint, exclude, julia_target, project)
+                .map_err(|error| error.to_string())?
+                .reports
+                .into_iter()
+                .flat_map(|report| report.diagnostics)
+                .collect();
     }
 
     let rendered =
@@ -862,9 +869,9 @@ mod tests {
 
     #[test]
     fn project_harvest_tracks_effectively_enabled_resolution_rules() {
-        // Loose files keep resolution rules off by default. Explicit script
-        // programs supply the context needed to enable undefined-name.
-        assert!(!wants_project_resolution(&LintConfig::default(), false));
+        // Default unused-import findings need the package include closure.
+        // Explicit programs also enable undefined-name by default.
+        assert!(wants_project_resolution(&LintConfig::default(), false));
         assert!(wants_project_resolution(&LintConfig::default(), true));
 
         let syntax_only = LintConfig {
@@ -889,7 +896,7 @@ mod tests {
         assert!(!wants_project_resolution(&ignored, true));
         assert!(!wants_project_resolution(
             &LintConfig {
-                ignore: vec!["undefined-name".into()],
+                ignore: vec!["undefined-name".into(), "unused-import".into()],
                 ..Default::default()
             },
             true
@@ -903,6 +910,7 @@ mod tests {
             Some(vec![]),
             Some(vec!["invalid-docstring-code".to_string()]),
         ] {
+            let keeps_defaults = select.is_none();
             let mut config = LintConfig {
                 select,
                 extend_select: vec!["undefined-name".to_string()],
@@ -911,12 +919,15 @@ mod tests {
             assert!(wants_project_resolution(&config, false));
             assert!(wants_project_resolution(&config, true));
             config.ignore.push("undefined-name".to_string());
+            assert_eq!(wants_project_resolution(&config, false), keeps_defaults);
+            assert_eq!(wants_project_resolution(&config, true), keeps_defaults);
+            config.ignore.push("unused-import".to_string());
             assert!(!wants_project_resolution(&config, false));
             assert!(!wants_project_resolution(&config, true));
         }
 
         let syntax_only = LintConfig {
-            extend_select: vec!["unused-argument".to_string()],
+            select: Some(vec!["unused-argument".to_string()]),
             ..Default::default()
         };
         assert!(!wants_project_resolution(&syntax_only, false));

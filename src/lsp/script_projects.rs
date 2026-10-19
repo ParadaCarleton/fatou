@@ -201,8 +201,8 @@ impl ScriptProjects {
         });
     }
 
-    /// Returns whether dependent diagnostics need refreshing. Body-only edits
-    /// leave the range-free programs equal and do not refresh other documents.
+    /// Returns whether dependent diagnostics need refreshing. Edits that keep
+    /// global definitions and reads equal do not refresh other documents.
     /// The caller must wait for in-flight analysis to finish: even an unchanged
     /// program can write source text and cancel Salsa readers.
     pub fn install(&mut self, loaded: Loaded, db: &mut IncrementalDatabase) -> bool {
@@ -341,7 +341,7 @@ mod tests {
         let stale = scripts.ready.recv_timeout(Duration::from_secs(5)).unwrap();
         scripts.update(
             &entry,
-            Arc::new(TextBuffer::new("fresh(x) = x\n")),
+            Arc::new(TextBuffer::new("fresh(x) = x + 1\n")),
             2,
             &entries,
             &mut db,
@@ -351,7 +351,7 @@ mod tests {
         assert!(scripts.install(current, &mut db));
         assert_eq!(
             db.snapshot().file_text_of(db.lookup_file(&entry).unwrap()),
-            "fresh(x) = x\n"
+            "fresh(x) = x + 1\n"
         );
         scripts.update(
             &entry,

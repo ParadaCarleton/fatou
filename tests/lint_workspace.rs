@@ -196,3 +196,71 @@ fn cli_leaves_a_test_file_alone() {
         Vec::<String>::new(),
     );
 }
+
+#[test]
+fn package_unused_imports_follow_includes_without_script_entry_points() {
+    let (_dep, pkg, mut library) = project("f(x) = sin(x)\n");
+    write(&pkg.path().join("src/a.jl"), "using Base: sin, cos\n");
+    library
+        .packages
+        .insert("M".into(), Arc::new(harvest_package_named(pkg.path(), "M")));
+    let config = LintConfig {
+        select: Some(vec!["unused-import".into()]),
+        ..Default::default()
+    };
+    let lint = || {
+        check_paths_with_config(
+            &[pkg.path().join("src/a.jl")],
+            &config,
+            &ExcludeFilter::none(),
+            None,
+            ProjectContext::Harvested(&library),
+        )
+        .unwrap()
+    };
+    let findings = lint();
+    assert_eq!(findings.total_findings, 1, "{findings:?}");
+    assert!(
+        findings.reports[0].diagnostics[0]
+            .message
+            .body
+            .contains("`cos`")
+    );
+
+    // Usage comes from current sources, even if the harvested index is stale.
+    write(&pkg.path().join("src/b.jl"), "f(x) = cos(x)\n");
+    let findings = lint();
+    assert_eq!(findings.total_findings, 1, "{findings:?}");
+    assert!(
+        findings.reports[0].diagnostics[0]
+            .message
+            .body
+            .contains("`sin`")
+    );
+    write(&pkg.path().join("src/b.jl"), "include(path)\n");
+    assert_eq!(lint().total_findings, 0);
+
+    // A stale membership index cannot turn a newly included source into an
+    // isolated file and invent an unused-import finding.
+    write(
+        &pkg.path().join("src/M.jl"),
+        "module M\ninclude(\"new.jl\")\ninclude(\"b.jl\")\nend\n",
+    );
+    write(&pkg.path().join("src/new.jl"), "using Base: sin, tan\n");
+    write(&pkg.path().join("src/b.jl"), "f(x) = sin(x)\n");
+    let findings = check_paths_with_config(
+        &[pkg.path().join("src/new.jl")],
+        &config,
+        &ExcludeFilter::none(),
+        None,
+        ProjectContext::Harvested(&library),
+    )
+    .unwrap();
+    assert_eq!(findings.total_findings, 1, "{findings:?}");
+    assert!(
+        findings.reports[0].diagnostics[0]
+            .message
+            .body
+            .contains("`tan`")
+    );
+}
