@@ -14,7 +14,9 @@ use std::path::{Path, PathBuf};
 
 use rowan::TextRange;
 
-use crate::ast::{AstNode, AstToken, CallExpr, DocAttachment, DocText, Expr, HasArgList, body_of};
+use crate::ast::{
+    AstNode, AstToken, CallExpr, DocAttachment, DocText, Expr, HasArgList, MacroCall, body_of,
+};
 use crate::project::{include_target, resolve_target};
 use crate::semantic::collect_import_clauses;
 use crate::semantic::signature::{annotation_parts, has_call_core, peel_signature, type_name_of};
@@ -948,8 +950,8 @@ fn param_from_node(node: &SyntaxNode) -> Param {
     }
 }
 
-/// Lower a parameter pattern to a [`Param`], unwrapping `::T` annotations and
-/// `x...` splats.
+/// Lower a parameter pattern to a [`Param`], unwrapping `::T` annotations,
+/// `x...` splats, and dispatch-preserving `@nospecialize` annotations.
 fn param_from_pattern(node: &SyntaxNode) -> Param {
     match node.kind() {
         SyntaxKind::NAME | SyntaxKind::NONSTANDARD_IDENTIFIER => Param {
@@ -960,6 +962,7 @@ fn param_from_pattern(node: &SyntaxNode) -> Param {
             let (pattern, types) = annotation_parts(node);
             let mut param = pattern.as_ref().map(param_from_pattern).unwrap_or_default();
             param.type_annotation = types.first().map(lower_type);
+            param.is_opaque |= types.iter().any(contains_macro);
             param
         }
         SyntaxKind::SPLAT_EXPR => {
@@ -971,8 +974,53 @@ fn param_from_pattern(node: &SyntaxNode) -> Param {
             param.is_vararg = true;
             param
         }
-        _ => Param::default(),
+        SyntaxKind::PAREN_EXPR => node
+            .children()
+            .next()
+            .map(|inner| param_from_node(&inner))
+            .unwrap_or_default(),
+        SyntaxKind::MACRO_CALL => MacroCall::cast(node.clone())
+            .and_then(|call| nospecialize_param(&call))
+            .unwrap_or_else(|| Param {
+                is_opaque: true,
+                ..Param::default()
+            }),
+        _ => Param {
+            is_opaque: contains_macro(node),
+            ..Param::default()
+        },
     }
+}
+
+fn contains_macro(node: &SyntaxNode) -> bool {
+    node.descendants()
+        .any(|child| child.kind() == SyntaxKind::MACRO_CALL)
+}
+
+fn nospecialize_param(call: &MacroCall) -> Option<Param> {
+    let name = call.name()?;
+    let path: Vec<_> = name
+        .ident_tokens()
+        .map(|ident| ident.text().to_string())
+        .collect();
+    let known = match path.as_slice() {
+        [name] => name == "nospecialize",
+        [owner, name] => matches!(owner.as_str(), "Base" | "Core") && name == "nospecialize",
+        _ => false,
+    };
+    if !known {
+        return None;
+    }
+    let args = macro_args(call.syntax());
+    let [arg] = args.as_slice() else {
+        return None;
+    };
+    if arg.kind() == SyntaxKind::PARAMETERS {
+        return None;
+    }
+    // Julia's annotation changes specialization, while preserving the entire
+    // parameter expression, including defaults and varargs.
+    Some(param_from_node(arg))
 }
 
 /// The name and its bounds structure for a type header: `Foo`, `Foo{T}`,
@@ -1297,6 +1345,74 @@ mod tests {
             &method.where_clauses[0],
             TypeExpr::TypeVar { name, upper: Some(_), .. } if name == "T"
         ));
+    }
+
+    #[test]
+    fn nospecialize_preserves_parameter_structure() {
+        for pattern in [
+            "x",
+            "_::Int",
+            "::Int",
+            "x::Int",
+            "x::Vector{Int}",
+            "x::Int = 0",
+            "x::Int...",
+        ] {
+            let plain = harvest_str(&format!("f({pattern}) = 1"), "Pkg");
+            let expected = &plain.functions[0].methods[0].params;
+            for annotation in [
+                "@nospecialize",
+                "Base.@nospecialize",
+                "Core.@nospecialize",
+                "@Base.nospecialize",
+                "@Core.nospecialize",
+            ] {
+                for parameter in [
+                    format!("{annotation}({pattern})"),
+                    format!("{annotation} ({pattern})"),
+                ] {
+                    let source = format!("f({parameter}) = 1");
+                    let parsed = crate::parser::parse(&source);
+                    assert!(
+                        parsed.diagnostics.is_empty(),
+                        "{source}: {:?}",
+                        parsed.diagnostics
+                    );
+                    let annotated = harvest_tree(&parsed.cst);
+                    assert_eq!(
+                        &annotated.functions[0].methods[0].params, expected,
+                        "{source}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn unknown_parameter_macros_are_opaque() {
+        for source in [
+            "f(@custom(x::Int)) = 1",
+            "f(Other.@nospecialize(x)) = 1",
+            "f(@nospecialize(@custom(x))) = 1",
+            "f((@custom(x))) = 1",
+            "f(@nospecialize()) = 1",
+            "f(@nospecialize(x, y)) = 1",
+            "f(x::@custom()) = 1",
+            "f(x::Vector{@custom()}) = 1",
+            "f((x, @custom(y))) = 1",
+        ] {
+            let parsed = crate::parser::parse(source);
+            assert!(
+                parsed.diagnostics.is_empty(),
+                "{source}: {:?}",
+                parsed.diagnostics
+            );
+            let index = harvest_tree(&parsed.cst);
+            assert!(
+                index.functions[0].methods[0].params[0].is_opaque,
+                "{source}"
+            );
+        }
     }
 
     #[test]

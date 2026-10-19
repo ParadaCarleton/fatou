@@ -169,8 +169,19 @@ impl Rule for CallArity {
             }
             // A same-named type means constructors (implicit ones invisible
             // here); a bodyless `function f end` announces methods defined
-            // elsewhere. Either way the table is not the whole story.
-            if table.methods.is_empty() || table.saw_type || table.saw_placeholder {
+            // elsewhere. Unknown parameter macros may change the accepted
+            // argument count. In each case the table is not the whole story.
+            if table.methods.is_empty()
+                || table.saw_type
+                || table.saw_placeholder
+                || table.methods.iter().any(|method| {
+                    method
+                        .params
+                        .iter()
+                        .chain(&method.keyword_params)
+                        .any(|param| param.is_opaque)
+                })
+            {
                 continue;
             }
 

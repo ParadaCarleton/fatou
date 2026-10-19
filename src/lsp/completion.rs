@@ -1280,6 +1280,7 @@ mod tests {
                 }),
                 default: None,
                 is_vararg: false,
+                is_opaque: false,
             }],
             keyword_params: Vec::new(),
             type_args: Vec::new(),

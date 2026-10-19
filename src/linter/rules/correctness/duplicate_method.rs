@@ -44,6 +44,8 @@
 //!   arguments are no evidence of two identical methods. This covers the
 //!   `@static if` idiom from both sides — the branches of a conditional are not
 //!   walked at all, so a plain `if VERSION ...` split is invisible too;
+//! - unknown parameter macros leave dispatch uncertain and are skipped.
+//!   `@nospecialize` preserves dispatch and is lowered by the shared harvester;
 //! - a bodyless `function f end` declaration defines no method and is ignored.
 //!
 //! Only the second and later definitions are flagged; the first is the one
@@ -146,7 +148,13 @@ impl DuplicateMethod {
             for method in &group.methods {
                 // `function f end` declares the function without adding a
                 // method to it.
-                if !method.has_body {
+                if !method.has_body
+                    || method
+                        .params
+                        .iter()
+                        .chain(&method.keyword_params)
+                        .any(|param| param.is_opaque)
+                {
                     continue;
                 }
                 let range =

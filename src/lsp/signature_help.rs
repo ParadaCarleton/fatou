@@ -330,6 +330,7 @@ fn param_from_source(node: &SyntaxNode) -> Param {
         type_annotation: None,
         default: None,
         is_vararg: false,
+        is_opaque: false,
     }
 }
 
@@ -492,6 +493,7 @@ mod tests {
             type_annotation: None,
             default: None,
             is_vararg: false,
+            is_opaque: false,
         }
     }
 

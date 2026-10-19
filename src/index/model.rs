@@ -226,6 +226,10 @@ pub struct Param {
     pub default: Option<String>,
     /// `true` for a slurping `x...`/`args::Int...` parameter.
     pub is_vararg: bool,
+    /// `true` when a parameter's pattern or type contains an unknown macro
+    /// expansion. The other fields do not establish its dispatch type or
+    /// accepted argument count.
+    pub is_opaque: bool,
 }
 
 /// A `struct`, `abstract type`, or `primitive type` definition.

@@ -2461,6 +2461,29 @@ fn call_arity_respects_vararg() {
 }
 
 #[test]
+fn call_arity_respects_nospecialize_parameter_structure() {
+    assert_eq!(
+        count(
+            "call-arity",
+            "f(@nospecialize(x::Int = 0)) = x\nf()\nf(1)\nf(1, 2)\n"
+        ),
+        1
+    );
+    assert_eq!(
+        count(
+            "call-arity",
+            "f(@nospecialize(xs::Int...)) = xs\nf()\nf(1)\nf(1, 2)\n"
+        ),
+        0
+    );
+}
+
+#[test]
+fn call_arity_withholds_unknown_parameter_macros() {
+    assert_eq!(count("call-arity", "f(@custom(x)) = x\nf()\nf(1, 2)\n"), 0);
+}
+
+#[test]
 fn call_arity_checks_the_whole_dispatch_group() {
     // Any method admitting the count clears the call.
     assert_eq!(
@@ -4188,6 +4211,53 @@ fn duplicate_method_flags_the_long_and_short_forms_alike() {
 fn duplicate_method_flags_untyped_arguments() {
     // An unannotated argument is `Any`, so both methods are `f(::Any)`.
     assert_eq!(count("duplicate-method", "f(x) = 1\nf(y) = 2\n"), 1);
+}
+
+#[test]
+fn duplicate_method_preserves_nospecialize_dispatch_types() {
+    for annotation in ["@nospecialize", "Base.@nospecialize", "Core.@nospecialize"] {
+        let src = format!("f({annotation}(_::Int)) = 1\nf({annotation}(_::String)) = 2\n");
+        assert_eq!(count("duplicate-method", &src), 0, "{src}");
+    }
+}
+
+#[test]
+fn duplicate_method_flags_matching_nospecialize_signatures() {
+    for src in [
+        "f(@nospecialize(_::Int)) = 1\nf(@nospecialize(_::Int)) = 2\n",
+        "f(@nospecialize(x::Int)) = 1\nf(y::Int) = 2\n",
+        "f(x::Int) = 1\nf(@nospecialize y::Int) = 2\n",
+        "f(Base.@nospecialize(x::Int)) = 1\nf(Core.@nospecialize(y::Int)) = 2\n",
+        "f(@nospecialize(x)) = 1\nf(y) = 2\n",
+        "f(@nospecialize(x::Int = 0)) = 1\nf(y::Int) = 2\n",
+        "f(@nospecialize(x::Int...)) = 1\nf(y::Int...) = 2\n",
+        "function f(@nospecialize x::Int)\n    1\nend\nf(y::Int) = 2\n",
+        "f(x::Int = @custom()) = 1\nf(y::Int) = 2\n",
+    ] {
+        assert_eq!(count("duplicate-method", src), 1, "{src}");
+    }
+}
+
+#[test]
+fn duplicate_method_withholds_unknown_parameter_macros() {
+    for src in [
+        "f(@custom(x::Int)) = 1\nf(@custom(x::String)) = 2\n",
+        "f(@custom(x)) = 1\nf(@custom(x)) = 2\n",
+        "f(@custom(x)) = 1\nf(y) = 2\n",
+        "f(x) = 1\nf(@custom(y)) = 2\n",
+        "f(Other.@nospecialize(x)) = 1\nf(y) = 2\n",
+        "f(@nospecialize(@custom(x))) = 1\nf(y) = 2\n",
+        "f(x::@custom()) = 1\nf(y::@custom()) = 2\n",
+        "f(x; @custom(y)) = 1\nf(x; @custom(y)) = 2\n",
+    ] {
+        assert_eq!(count("duplicate-method", src), 0, "{src}");
+    }
+}
+
+#[test]
+fn duplicate_method_checks_known_signatures_alongside_unknown_macros() {
+    let source = "f(x::Int) = 1\nf(@custom(x)) = 2\nf(y::Int) = 3\n";
+    assert_eq!(count("duplicate-method", source), 1);
 }
 
 #[test]

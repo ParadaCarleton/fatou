@@ -535,6 +535,7 @@ mod tests {
                     type_annotation: None,
                     default: None,
                     is_vararg: false,
+                    is_opaque: false,
                 })
                 .collect(),
             keyword_params: Vec::new(),
@@ -728,6 +729,7 @@ mod tests {
                 type_annotation: None,
                 default: None,
                 is_vararg: false,
+                is_opaque: false,
             }],
             doc: doc("Time an expression."),
             loc: loc(),

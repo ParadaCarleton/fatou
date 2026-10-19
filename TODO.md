@@ -139,12 +139,12 @@ style remains project policy rather than language correctness.
 
 ### Rules
 
-- [ ] Preserve dispatch types inside `@nospecialize` parameter annotations in
-  the shared signature harvester. `f(@nospecialize(_::Int)) = 1` followed by
-  `f(@nospecialize(_::String)) = 2` incorrectly triggers `duplicate-method`:
-  `param_from_pattern` lowers both macro arguments to an untyped default.
-  Julia 1.13.0 defines two distinct methods. Unknown parameter macros must
-  not be treated as proof that dispatch signatures are identical.
+- [x] Preserve dispatch types inside `@nospecialize` parameter annotations in
+  the shared signature harvester, including qualified Base/Core spellings,
+  defaults, and varargs. Distinct dispatch types no longer trigger
+  `duplicate-method`; matching signatures still do. Unknown parameter macros
+  remain opaque, so `duplicate-method` and `call-arity` withhold findings when
+  expansion could change the signature.
 
 - [ ] Make `unused-import` account for uses in the same module's included
   files through the shared project model. An entry module that includes
