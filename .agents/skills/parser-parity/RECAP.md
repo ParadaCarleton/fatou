@@ -61,7 +61,7 @@ ledger below for remaining work.
 ## Progress
 
 JS corpus (**756 cases**, error shapes included): **749 allowlisted**, 7
-divergence, 0 unsupported. Dir corpus (**273 cases**): **272 allowlisted**, 1
+divergence, 0 unsupported. Dir corpus (**274 cases**): **273 allowlisted**, 1
 blocked (`numeric_literals`; FAIL not skip since `render` is total). JuliaSyntax
 1.0.2 added 71 harvested cases; all remaining harvested divergences are the
 permanent cases recorded below. A green report means "no regression", not
@@ -100,37 +100,33 @@ nested brackets inside a junk run; `try x finally z else y end` (else after
 finally); `;`-segment double-`✘`; prefix `**a`/`--a` (`call-pre`, in neither
 corpus); trailing block-body junk (`function f g h end`).
 
-## Latest session (2026-10-18 — nested-block reparse)
+## Latest session (2026-10-19 — standalone colon whitespace)
 
-- **Parser**: `ReparseTier::Block` sits between token and top-level splices.
-  The internal body-fragment entry point shares the structural body drivers
-  and finalization passes; its owner preserves module `public`, docstring,
-  semicolon, and struct-field context. Bodies reset enclosing bracket markers,
-  while indexing expressions inside them keep their normal markers.
-- **Guards**: reuse statement seam checks and diagnostic streams. Reparse the
-  old run to prove the fragment context reproduces it. Include complete physical
-  lines for semicolon-separated statements. Require untouched statements on
-  both sides; body edges and constructs with grammar-recovery diagnostics use
-  the enclosing tier or full parse. No grammar, lexer, projector, or snapshots
-  changed.
-- **Coverage**: targeted context and diagnostic-stream tests, sibling allocation
-  reuse, precise edit chains, nested hazard sweeps, and the full curated corpus
-  wrapped in a module. Every successful splice matches a fresh parse.
-- **Counts**: JS **749/756 → 749/756**, dir **272/273 → 272/273**. No oracle
-  regressions or generated corpus changes.
-- **Validation**: workspace tests, Clippy with all targets and features, and both
-  member Wasm builds pass. All 43 JuliaSyntax source files pass `debug format`.
-  Across 20 interleaved, pinned release runs, the nested-module edit is about
-  220 times faster; full parsing and token edits stay within measurement noise.
-  Rejected attempts cost about 4% more. Results are in `bench/reparse.json`.
-- **Remaining optimization**: body-edge splices need guards against the owning
-  header and clause terminator. Recovery-aware splices need to retain delayed
-  ancestor diagnostics in emission order. Both currently fall back correctly.
+- **Parser gap**: `parse_quote_sym` declines value-position colons before a
+  closing delimiter, comma, semicolon, or EOF before recording quote whitespace
+  diagnostics. Horizontal whitespace and comments, including multiline block
+  comments, do not turn a standalone colon into a quote. Newline and quoted
+  symbol diagnostics remain intact. No CST shape or projector changes.
+- **Coverage**: parser/oracle fixture `colon_value_whitespace` covers the reported
+  index and `view` call, parentheses, vectors, braces, curlies, separators, and
+  comments. Explicit tests pin clean EOF cases and invalid quotes such as
+  `: name`. CLI regressions verify lint execution and safe formatting. The
+  existing corpus sweep checks incremental edits in top-level and nested module
+  contexts.
+- **Counts**: JS **749/756 → 749/756**, dir **272/273 → 273/274**. Zero oracle
+  regressions and no new blocked cases. Generated expectations remain pinned
+  to Julia 1.13.0 / JuliaSyntax 1.0.2.
+- **Validation**: workspace tests, both oracle reports, Clippy with all targets
+  and features, and rustfmt pass. The new fixture passes losslessness, safe
+  formatting, and formatting idempotency checks.
 
 ## Earlier sessions
 
 Newest first; one line each. Counts are `JS allowlist` / `dir allowlist` after.
 
+- **2026-10-18** — nested-block reparsing with context and seam guards, sibling
+  reuse, and diagnostic-stream coverage; measurements in `bench/reparse.json`.
+  Body edges and enclosing recovery still fall back. 749 / 272.
 - **2026-09-29** — radical juxtaposition, grouping, and unary precedence, with
   two reviewed parser/oracle fixtures. 749 / 272.
 

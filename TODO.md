@@ -2,11 +2,10 @@
 
 ## Parser
 
-- [ ] Accept whitespace after a standalone colon before a closing delimiter:
-  `A[ rows, : ]` and `view( A, i, : )` currently emit
-  `QuoteColonWhitespace`, blocking linting and `format --safe`. Julia 1.13.0
-  and JuliaSyntax 1.0.2 accept both. Preserve diagnostics for invalid quoted
-  symbols such as `: name`.
+- [x] Accept whitespace after a standalone colon before a closing delimiter:
+  `A[ rows, : ]` and `view( A, i, : )` now parse cleanly, allowing linting and
+  `format --safe`. Separators, trailing comments, and EOF use the same value
+  disambiguation. Invalid quoted symbols such as `: name` retain diagnostics.
 
 - [x] Parse implicit multiplication before radicals (`a√4`, `a∛8`, and
   `a∜16`), including broadcast forms. Unary operands and consecutive factors

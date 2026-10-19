@@ -160,6 +160,41 @@ fn safe_formats_verified_stdin() {
 }
 
 #[test]
+fn safe_formats_standalone_colons_with_trailing_spaces() {
+    let dir = sandbox();
+    let input = "A[ rows, : ]\nview( A, i, : )\n";
+    let output = run_stdin(dir.path(), &["format", "--safe", "-"], Some(input));
+
+    assert!(output.status.success(), "{:?}", output);
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        "A[rows, :]\nview(A, i, :)\n"
+    );
+    assert!(output.stderr.is_empty());
+}
+
+#[test]
+fn lint_checks_files_containing_standalone_colons_with_trailing_spaces() {
+    let dir = sandbox();
+    std::fs::write(
+        dir.path().join("fatou.toml"),
+        "[lint]\nselect = [\"nothing-comparison\"]\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("input.jl"),
+        "A[ rows, : ]\nview( A, i, : )\nx == nothing\n",
+    )
+    .unwrap();
+    let output = run(dir.path(), &["lint", "input.jl"]);
+
+    assert_eq!(output.status.code(), Some(1), "{:?}", output);
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("nothing-comparison"), "{stderr}");
+    assert!(!stderr.contains("parse-error"), "{stderr}");
+}
+
+#[test]
 fn safe_stdin_fails_closed_without_output() {
     let dir = sandbox();
 
