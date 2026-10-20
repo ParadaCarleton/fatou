@@ -24,11 +24,15 @@ fn project(entries: &[&str]) -> TempDir {
 }
 
 fn lint(dir: &Path, args: &[&str]) -> Vec<Value> {
+    lint_with_project(dir, dir, args)
+}
+
+fn lint_with_project(dir: &Path, project: &Path, args: &[&str]) -> Vec<Value> {
     let output = Command::new(env!("CARGO_BIN_EXE_fatou"))
         .current_dir(dir)
         .env_remove("FATOU_CONFIG")
         .env("JULIA_DEPOT_PATH", dir.join("empty-depot"))
-        .env("JULIA_PROJECT", dir)
+        .env("JULIA_PROJECT", project)
         .env("JULIA_BINDIR", "")
         .env("PATH", "")
         .args(["lint", "--output", "json"])
@@ -481,6 +485,36 @@ fn unused_import_preserves_suppressions_while_include_usage_is_unknown() {
 
 #[test]
 fn package_unused_import_cli_and_fix_use_the_current_include_closure() {
+    let dir = package_with_imports();
+    for args in [vec!["src/imports.jl"], vec!["--fix", "src/imports.jl"]] {
+        let findings = lint(dir.path(), &args);
+        assert_eq!(findings.len(), 1, "{args:?}: {findings:#?}");
+        assert!(findings[0].to_string().contains("`cos`"));
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn package_unused_import_cli_and_fix_follow_a_symlinked_environment() {
+    let dir = package_with_imports();
+    let aliases = tempfile::tempdir().unwrap();
+    let alias = aliases.path().join("project");
+    std::os::unix::fs::symlink(dir.path(), &alias).unwrap();
+    for args in [vec!["src/imports.jl"], vec!["--fix", "src/imports.jl"]] {
+        let findings = lint_with_project(dir.path(), &alias, &args);
+        assert_eq!(findings.len(), 1, "{args:?}: {findings:#?}");
+        assert!(findings[0].to_string().contains("`cos`"));
+    }
+    let target = alias.join("src/imports.jl");
+    let target = target.to_str().unwrap();
+    for args in [vec![target], vec!["--fix", target]] {
+        let findings = lint(dir.path(), &args);
+        assert_eq!(findings.len(), 1, "{args:?}: {findings:#?}");
+        assert!(findings[0].to_string().contains("`cos`"));
+    }
+}
+
+fn package_with_imports() -> TempDir {
     let dir = project(&[]);
     write(
         dir.path(),
@@ -499,9 +533,5 @@ fn package_unused_import_cli_and_fix_use_the_current_include_closure() {
     );
     write(dir.path(), "src/imports.jl", "using Base: sin, cos\n");
     write(dir.path(), "src/use.jl", "f(x) = sin(x)\n");
-    for args in [vec!["src/imports.jl"], vec!["--fix", "src/imports.jl"]] {
-        let findings = lint(dir.path(), &args);
-        assert_eq!(findings.len(), 1, "{args:?}: {findings:#?}");
-        assert!(findings[0].to_string().contains("`cos`"));
-    }
+    dir
 }

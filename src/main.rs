@@ -563,16 +563,32 @@ fn wants_project_resolution(config: &fatou::config::LintConfig, scripts: bool) -
 /// loose file outside any project), which leaves the lint in single-file mode.
 fn harvest_project(paths: &[PathBuf]) -> Option<fatou::index::HarvestedLibrary> {
     use fatou::environment::{self, EnvContext};
-    let env = environment::resolve(&EnvContext::from_process(lint_anchor(paths)))
+    let anchor = lint_anchor(paths);
+    let env = environment::resolve(&EnvContext::from_process(anchor.clone()))
         .ok()
         .flatten()?;
     let pool = rayon::ThreadPoolBuilder::new().build().ok()?;
     let cache = fatou::index::IndexCache::open();
-    Some(fatou::index::harvest_libraries_parallel(
-        std::slice::from_ref(&env),
-        cache.as_ref(),
-        &pool,
-    ))
+    let mut library =
+        fatou::index::harvest_libraries_parallel(std::slice::from_ref(&env), cache.as_ref(), &pool);
+    // Membership uses lexical paths. Use the target's spelling of a workspace
+    // root when JULIA_PROJECT reaches it through another alias, including
+    // macOS's /var symlink to /private/var.
+    for name in &library.workspaces {
+        let Some(root) = library.roots.get_mut(name) else {
+            continue;
+        };
+        let Ok(identity) = root.canonicalize() else {
+            continue;
+        };
+        if let Some(alias) = anchor
+            .ancestors()
+            .find(|path| path.canonicalize().is_ok_and(|path| path == identity))
+        {
+            *root = alias.to_path_buf();
+        }
+    }
+    Some(library)
 }
 
 /// The directory to resolve the environment from: the first target's directory
