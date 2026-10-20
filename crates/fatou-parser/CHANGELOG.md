@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.8.2](https://github.com/jolars/fatou/compare/fatou-parser-v0.8.1...fatou-parser-v0.8.2) (2026-10-20)
+
+### Bug Fixes
+
+- **parser:** accept spaces after standalone colons ([`459d342`](https://github.com/jolars/fatou/commit/459d3425b93e4833e433cac1b3954169f03a0cf5))
+
+### Performance Improvements
+
+- **parser:** reuse verified single edits ([`f3c2f84`](https://github.com/jolars/fatou/commit/f3c2f84b0da50015585f87013456eef910c38fcc))
+- **parser:** reparse nested block statements ([`1692de7`](https://github.com/jolars/fatou/commit/1692de78c4802708468fce23b5392d6ff6322924))
+
 ## [0.8.1](https://github.com/jolars/fatou/compare/fatou-parser-v0.8.0...fatou-parser-v0.8.1) (2026-09-29)
 
 ### Bug Fixes

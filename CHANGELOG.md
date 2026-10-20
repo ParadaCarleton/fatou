@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.24.0](https://github.com/jolars/fatou/compare/v0.23.0...v0.24.0) (2026-10-20)
+
+### Features
+
+- **linter:** explain skipped name checks ([`84b27b9`](https://github.com/jolars/fatou/commit/84b27b90fc5412e9597b2c353419e784ed1a9683)), refs [#119](https://github.com/jolars/fatou/issues/119)
+
+### Bug Fixes
+
+- resolve lint workspaces through path aliases ([`6bac393`](https://github.com/jolars/fatou/commit/6bac39364497cd1144716ba2893ba61495759ce6))
+- avoid macro and loop assignment false positives ([`9bce0bb`](https://github.com/jolars/fatou/commit/9bce0bb962756d0fda74ab931e84552aeb3c7936))
+- track `unused-import` across included files ([`ae74bc3`](https://github.com/jolars/fatou/commit/ae74bc309b1c0d5d90fffb9ab2bb3854c5d0c515))
+- preserve `@nospecialize` dispatch signatures ([`001d9eb`](https://github.com/jolars/fatou/commit/001d9eb6e951fc77def50947564b1a684b537973))
+
+### Dependencies
+
+- updated crates/fatou-formatter to v0.7.4
+- updated crates/fatou-parser to v0.8.2
+
 ## [0.23.0](https://github.com/jolars/fatou/compare/v0.22.0...v0.23.0) (2026-10-06)
 
 ### Features
