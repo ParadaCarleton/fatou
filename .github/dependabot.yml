@@ -10,9 +10,8 @@ updates:
         patterns:
           - "*"
   - package-ecosystem: "cargo"
-    directories:
-      - "/"
-      - "/crates/*"
+    # Cargo workspace members are discovered from the root manifest.
+    directory: "/"
     schedule:
       interval: "weekly"
     groups:
