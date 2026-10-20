@@ -8,15 +8,15 @@
 //
 // Chart kinds are selected by the container's `data-kind`. Formatter plots show
 // time relative to Fatou (Fatou = 1) on a log axis, with a dashed baseline at 1;
-// lower is faster. Server plots show absolute time or memory on horizontal axes.
+// lower is faster. Server plots show absolute time or memory on vertical axes.
 //   default ("throughput"): x = tool, one dot per scenario dodged within the
 //                           tool's group (colored by scenario). The page draws
 //                           two of these, one for single files and one for
 //                           projects; the container's `data-legend` names what a
 //                           dot is ("File", "Project").
 //   "cold": x = tool, one dot per tool.
-//   "lsp-readiness", "lsp-requests", "lsp-memory": y = phase, request, or
-//   milestone, with one dot per server. Warm requests join medians to p95s.
+//   "lsp-readiness", "lsp-requests": x = server, colored by phase or request.
+//   "lsp-memory": grouped bars for each milestone, colored by server.
 (() => {
   // mdBook keeps the active theme as a class on <html>; these three are dark.
   function isDark() {
@@ -34,8 +34,14 @@
     const values = points
       .map((p) => p[field])
       .filter((value) => Number.isFinite(value) && value > 0);
-    let lo = Math.floor(Math.log10(Math.min.apply(null, values.concat([1]))));
-    let hi = Math.ceil(Math.log10(Math.max.apply(null, values.concat([1]))));
+    return logExtent(values.concat([1]));
+  }
+
+  function logExtent(values) {
+    values = values.filter((value) => Number.isFinite(value) && value > 0);
+    if (!values.length) return [0.1, 10];
+    let lo = Math.floor(Math.log10(Math.min.apply(null, values)));
+    let hi = Math.ceil(Math.log10(Math.max.apply(null, values)));
     if (lo === hi) {
       lo--;
       hi++;
@@ -45,7 +51,7 @@
 
   // Match ggplot2's log ticks: long at powers of ten, medium at five, and
   // short at the other subdivisions. Only powers of ten receive labels.
-  function logAxis(domain, color) {
+  function logAxis(domain, color, absolute) {
     const ticks = [];
     const major = [];
     const middle = [];
@@ -78,12 +84,18 @@
         ],
         value: 3,
       },
-      grid: false,
+      grid: true,
+      gridOpacity: {
+        condition: {
+          test: isMajor + (absolute ? "" : " && datum.value !== 1"),
+          value: 1,
+        },
+        value: 0,
+      },
     };
   }
 
-  // A single dashed reference line at y = 1: the Fatou baseline every dot is
-  // measured against. It replaces the log-scale gridlines, which read as clutter.
+  // The dashed reference line distinguishes Fatou's baseline from the grid.
   function baselineLayer(dark) {
     return {
       mark: { type: "rule", strokeDash: [4, 4], color: gridColor(dark) },
@@ -124,11 +136,26 @@
     return out;
   }
 
+  function seriesColor(field, title, values, compact) {
+    return {
+      field: field,
+      type: "nominal",
+      title: title,
+      sort: values,
+      legend: {
+        orient: "top",
+        direction: "horizontal",
+        columns: compact ? 1 : 2,
+        labelLimit: 240,
+      },
+    };
+  }
+
   // Warm-loop dot plot: x = tool, one dot per scenario dodged within the tool's
   // group, colored by scenario, y = time relative to Fatou on a log axis
   // (Fatou = 1). Single files and projects get one of these each, so what a dot
   // stands for ("File" or "Project") comes in as `legend`.
-  function spec(points, legend) {
+  function spec(points, legend, compact) {
     var dark = isDark();
     var scenarios = orderedUnique(points, "scenario");
     var tools = orderedUnique(points, "tool");
@@ -173,12 +200,7 @@
               scale: { type: "log", domain: domain, nice: false },
               axis: logAxis(domain, dark ? "#c8c9db" : "#333333"),
             },
-            color: {
-              field: "scenario",
-              type: "nominal",
-              title: legend,
-              sort: scenarios,
-            },
+            color: seriesColor("scenario", legend, scenarios, compact),
             tooltip: [
               { field: "scenario", title: legend },
               { field: "tool", title: "Tool" },
@@ -257,24 +279,13 @@
     };
   }
 
-  function serverSpec(points, kind) {
+  function serverSpec(points, kind, compact) {
     const dark = isDark();
     const config = themeConfig(dark);
-    config.axis.labelFontSize = 12;
-    config.legend.labelFontSize = 12;
     const memory = kind === "lsp-memory";
     const requests = kind === "lsp-requests";
     const servers = orderedUnique(points, "server");
     const metrics = orderedUnique(points, "metric");
-    // Include p95 in the domain so the tail of a request never gets clipped.
-    const domain = logDomain(
-      points.flatMap((p) => [{ value: p.value }, { value: p.p95 }]),
-      "value",
-    );
-    const colors = dark
-      ? ["#56b4e9", "#e69f00", "#009e73"]
-      : ["#0072b2", "#d55e00", "#009e73"];
-    const serverOrder = ["Fatou", "LanguageServer.jl", "JETLS"];
     const tooltip = [
       { field: "server", title: "Server" },
       { field: "metric", title: requests ? "Request" : "Milestone" },
@@ -290,48 +301,21 @@
         { field: "returned_work", title: "Returned work" },
       );
     }
-    const layers = [];
-    if (requests) {
-      // This is the observed median-to-p95 span, not uncertainty in the median.
-      layers.push({
-        transform: [{ filter: "isValid(datum.p95) && datum.p95 > 0" }],
-        mark: { type: "rule", strokeWidth: 2, opacity: 0.6 },
-        encoding: { x2: { field: "p95" } },
-      });
-    }
-    layers.push({
-      mark: { type: "point", filled: true, size: 85, opacity: 1 },
-    });
-    if (requests) {
-      layers.push({
-        transform: [{ filter: "isValid(datum.p95) && datum.p95 > 0" }],
-        mark: {
-          type: "point",
-          filled: false,
-          size: 85,
-          strokeWidth: 2,
-          opacity: 1,
-        },
-        encoding: { x: { field: "p95", type: "quantitative" } },
-      });
-    }
-    return {
+    const chart = {
       $schema: "https://vega.github.io/schema/vega-lite/v5.json",
       description: memory
-        ? "Resident memory in MB for each server at baseline, settled, and peak, " +
-          "on a linear scale. Left uses less memory. Expand Memory data for values."
+        ? "Resident memory in MB for each server at baseline, settled, and peak. " +
+          "Lower bars use less memory. Expand Memory data for values."
         : requests
-          ? "Warm request latency in milliseconds on a log scale, grouped by " +
-            "request and colored by server. Filled dots are medians, hollow dots " +
-            "are p95. Left is faster. Expand the table for timings and returned work."
-          : "Readiness time in seconds on a log scale, grouped by phase and " +
-            "colored by server. Left is faster. Expand Readiness data for values.",
+          ? "Median request latency in milliseconds on a log scale, grouped by " +
+            "server and colored by request. Lower is faster. Expand the table " +
+            "for timings, p95, and returned work."
+          : "Readiness time in seconds on a log scale, grouped by server and " +
+            "colored by phase. Lower is faster. Expand Readiness data for values.",
       width: "container",
-      autosize: { type: "fit-x", contains: "padding" },
-      height: metrics.length * 75,
+      height: memory ? 260 : 340,
       data: { values: points },
-      // A missing or zero timing cannot be placed on a log axis; it remains in
-      // the detail table rather than being presented as a measured positive time.
+      // Missing or zero timings remain in the table rather than on a log axis.
       transform: [
         {
           filter: memory
@@ -339,61 +323,78 @@
             : "isValid(datum.value) && datum.value > 0",
         },
       ],
-      encoding: {
-        y: {
+      config: config,
+    };
+    if (memory) {
+      chart.encoding = {
+        x: {
           field: "metric",
           type: "nominal",
           sort: metrics,
           title: null,
-          axis: {
-            labelLimit: 130,
-            ticks: false,
-            domain: false,
-            labelPadding: 10,
-          },
+          axis: { labelAngle: 0 },
         },
-        yOffset: { field: "server", type: "nominal", sort: servers },
-        x: {
+        xOffset: { field: "server", sort: servers },
+        y: {
           field: "value",
           type: "quantitative",
-          title: memory
-            ? "Resident memory (MB)"
-            : requests
-              ? "Request latency (ms, log scale)"
-              : "Readiness time (s, log scale)",
-          scale: memory
-            ? { zero: true }
-            : { type: "log", domain: domain, nice: false },
-          axis: memory
-            ? { tickCount: 5, format: ",.0f", grid: false }
-            : {
-                ...logAxis(domain, dark ? "#c8c9db" : "#333333"),
-                labelOverlap: "greedy",
+          title: "Process-tree RSS (MB)",
+          scale: { zero: true },
+        },
+      };
+      chart.layer = [
+        {
+          mark: { type: "bar" },
+          encoding: {
+            color: {
+              field: "server",
+              type: "nominal",
+              title: null,
+              scale: {
+                domain: servers,
+                range: ["#4e79a7", "#f28e2c", "#e15759"],
               },
-        },
-        color: {
-          field: "server",
-          type: "nominal",
-          sort: servers,
-          scale: {
-            domain: servers,
-            range: servers.map((server, i) => {
-              const index = serverOrder.indexOf(server);
-              return colors[(index < 0 ? i : index) % colors.length];
-            }),
-          },
-          legend: {
-            title: null,
-            orient: "bottom",
-            columns: 1,
-            symbolOpacity: 1,
+              legend: { orient: "top", direction: "horizontal" },
+            },
+            tooltip: tooltip,
           },
         },
-        tooltip: tooltip,
+        {
+          mark: { type: "text", dy: -8, color: config.axis.labelColor },
+          encoding: { text: { field: "value", format: ".1f" } },
+        },
+      ];
+      return chart;
+    }
+
+    const domain = logExtent(points.map((point) => point.value));
+    chart.encoding = {
+      x: {
+        field: "server",
+        type: "nominal",
+        sort: servers,
+        title: "Server",
+        axis: { labelAngle: 0 },
       },
-      layer: layers,
-      config: config,
+      y: {
+        field: "value",
+        type: "quantitative",
+        title: requests
+          ? "Request latency (ms, log scale)"
+          : "Elapsed time (s, log scale)",
+        scale: { type: "log", domain: domain, nice: false },
+        axis: logAxis(domain, config.axis.labelColor, true),
+      },
+      color: seriesColor(
+        "metric",
+        requests ? "Request" : "Wait",
+        metrics,
+        compact,
+      ),
+      tooltip: tooltip,
     };
+    chart.mark = { type: "point", filled: true, size: 130, opacity: 0.9 };
+    return chart;
   }
 
   function renderInto(container, points) {
@@ -401,17 +402,31 @@
       return;
     }
     const kind = container.dataset.kind || "throughput";
+    const compact = container.clientWidth < 500;
     const vlSpec = kind.startsWith("lsp-")
-      ? serverSpec(points, kind)
+      ? serverSpec(points, kind, compact)
       : kind === "cold"
         ? coldSpec(points)
-        : spec(points, container.dataset.legend || "Scenario");
+        : spec(points, container.dataset.legend || "Scenario", compact);
     // Alt text on the container, mirroring the spec description Vega puts on the
     // rendered SVG, so the chart is labeled for assistive tech either way.
     container.setAttribute("role", "img");
     container.setAttribute("aria-label", vlSpec.description);
     window
       .vegaEmbed(container, vlSpec, { actions: false, renderer: "svg" })
+      .then((result) => {
+        // The named container and adjacent table describe the whole chart.
+        container.querySelector("svg")?.setAttribute("aria-hidden", "true");
+        if (container.__benchView) container.__benchView.finalize();
+        container.__benchView = result.view;
+        if (!container.__benchRendered) {
+          container
+            .closest(".bench-chart-block")
+            .querySelector(".bench-table")
+            .removeAttribute("open");
+          container.__benchRendered = true;
+        }
+      })
       .catch((err) => {
         // Leave the fallback table in place; surface the reason for debugging.
         console.error("bench-charts: failed to render", err);

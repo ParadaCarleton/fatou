@@ -159,19 +159,12 @@ impl Scope {
     fn caption(self) -> &'static str {
         match self {
             Scope::Single => {
-                "Formatting time relative to Fatou on a log scale (lower is faster). One dot \
-                 per file, grouped at each tool and colored by file; Fatou sits on the dashed \
-                 baseline at 1 and slower tools appear above it. Each file goes through the \
-                 tool's pure <code>String -&gt; String</code> formatter, in the tool's own \
-                 default style. Hover a dot for the exact figures."
+                "Median formatting time relative to Fatou (lower is faster). \
+                 Each color is one file; the dashed line at 1 is Fatou."
             }
             Scope::Project => {
-                "Formatting time relative to Fatou on a log scale (lower is faster). One dot \
-                 per project, grouped at each tool and colored by project; Fatou sits on the \
-                 dashed baseline at 1 and slower tools appear above it. Each tool walks the \
-                 whole source tree through its own directory entry point, so file discovery, \
-                 IO, and internal parallelism all count; <code>Runic</code> is absent because \
-                 it has no in-process directory API. Hover a dot for the exact figures."
+                "Median formatting time relative to Fatou (lower is faster). \
+                 Each color is one project; the dashed line at 1 is Fatou."
             }
         }
     }
@@ -378,7 +371,7 @@ fn render_meta(meta: &Meta) -> String {
 
 /// One scope's results marker becomes an interactive dot plot (Vega-Lite, driven
 /// by `docs/theme/bench-charts.js` and wired via `book.toml`'s `additional-js`)
-/// plus a collapsed HTML table with the same numbers as a no-JS/print fallback.
+/// plus an HTML data table that collapses after the chart renders.
 /// Single files and projects get a chart each: they measure different work at
 /// different sizes, and a shared axis buries that.
 fn render_results(b: &Benchmarks, scope: Scope) -> String {
@@ -405,7 +398,7 @@ fn render_results(b: &Benchmarks, scope: Scope) -> String {
         "<noscript>Enable JavaScript for the interactive chart; \
          the data table below has the same numbers.</noscript>\n",
     );
-    out.push_str("<details class=\"bench-table\">\n<summary>Data table</summary>\n");
+    out.push_str("<details class=\"bench-table\" open>\n<summary>Data table</summary>\n");
     out.push_str(&render_results_tables_html(b, scope));
     out.push_str("</details>\n");
     out.push_str("</div>\n");
@@ -496,7 +489,7 @@ fn render_results_tables_html(b: &Benchmarks, scope: Scope) -> String {
 /// The cold-start marker becomes a log-scale dot plot of each tool's median
 /// fresh-process time relative to Fatou (startup plus, for the Julia tools,
 /// package load and first-call JIT), Fatou on a dashed baseline at 1, plus a
-/// collapsed HTML fallback table with the absolute numbers. A log axis keeps the
+/// an HTML data table with the absolute numbers. A log axis keeps the
 /// points readable across the wide dynamic range. (Points, not bars: a log scale
 /// has no zero baseline for bars to grow from.)
 fn render_cold_start(b: &Benchmarks) -> String {
@@ -514,20 +507,16 @@ fn render_cold_start(b: &Benchmarks) -> String {
     out.push_str(&data_json);
     out.push_str("</script>\n");
     out.push_str(
-        "<figcaption>Median cold-start time relative to Fatou on a logarithmic scale \
-         (lower is faster). Fatou is the dashed baseline at 1; each Julia tool sits above at \
-         its slowdown factor. Each run is a brand-new process that starts up, formats once, \
-         and exits. Fatou runs through <code>fatou format</code>; the Julia tools run through \
-         the same <code>julia -e 'using ...'</code> path a shell user takes, so Julia startup, \
-         package load, and first-call compilation all count. Hover a dot for the exact \
-         figures.</figcaption>\n",
+        "<figcaption>Median cold-start time relative to Fatou (lower is faster). \
+         The dashed line at 1 is Fatou. Each run starts a fresh process and \
+         formats one file.</figcaption>\n",
     );
     out.push_str("</figure>\n");
     out.push_str(
         "<noscript>Enable JavaScript for the interactive chart; \
          the data table below has the same numbers.</noscript>\n",
     );
-    out.push_str("<details class=\"bench-table\">\n<summary>Data table</summary>\n");
+    out.push_str("<details class=\"bench-table\" open>\n<summary>Data table</summary>\n");
     out.push_str(&render_cold_table_html(sc));
     out.push_str("</details>\n");
     out.push_str("</div>\n");

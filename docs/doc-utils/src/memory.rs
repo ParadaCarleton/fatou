@@ -10,7 +10,7 @@
 //!
 //! Readiness, request latency, and memory have different units and shapes, so
 //! each gets its own plot. The inline data uses the same vendored Vega runtime
-//! as the formatter plots; the underlying tables remain in collapsed details.
+//! as the formatter plots; the underlying tables collapse after the charts render.
 
 use mdbook_preprocessor::book::Book;
 use serde::{Deserialize, Serialize};
@@ -234,7 +234,7 @@ fn render_chart(
          </figure>\n\
          <noscript>Enable JavaScript for the interactive chart; \
          the data table below has the same numbers.</noscript>\n\
-         <details class=\"bench-table\">\n<summary>{summary}</summary>\n\n\
+         <details class=\"bench-table\" open>\n<summary>{summary}</summary>\n\n\
          {table}\n\
          </details>\n</div>\n\n"
     )
@@ -393,9 +393,8 @@ fn render_servers(m: &Memory) -> String {
     let mut out = render_chart(
         "lsp-memory",
         &points,
-        "Resident memory across the whole process tree, in MB on a linear scale \
-         (left uses less memory). Each dot is one server at one milestone. \
-         Hover a dot for the exact figure.",
+        "Resident memory across each server's process tree, in MB \
+         (lower uses less memory). Each bar shows one server at one milestone.",
         "Memory data",
         &table,
     );
@@ -447,9 +446,9 @@ fn render_speed(m: &Memory) -> String {
     out.push_str(&render_chart(
         "lsp-readiness",
         &readiness,
-        "Readiness time in seconds on a log scale (left is faster). Each dot is \
-         one measurement of a phase for one server; the phases have different \
-         starting points and are not additive. Hover a dot for the exact figure.",
+        "Readiness time in seconds on a log scale (lower is faster). \
+         Each color is one startup phase. The phases have different starting \
+         points and are not additive.",
         "Readiness data",
         &table,
     ));
@@ -485,11 +484,9 @@ fn render_speed(m: &Memory) -> String {
     out.push_str(&render_chart(
         "lsp-requests",
         &requests,
-        "Warm request latency in milliseconds on a log scale (left is faster). \
-         Filled dots show medians; hollow dots show p95, joined to the median \
-         for the same server and request. These spans are not confidence intervals. \
-         Hover for timings and returned work, or expand the table below. \
-         Servers can return different amounts of work for the same request.",
+        "Median request latency in milliseconds on a log scale (lower is faster). \
+         Each color is one request. Tooltips and the table include p95 and \
+         the number of results returned.",
         "Request timings and returned work",
         &table,
     ));
@@ -789,7 +786,7 @@ mod tests {
     }
 
     #[test]
-    fn server_chart_carries_milestones_with_a_collapsed_table() {
+    fn server_chart_carries_milestones_with_a_fallback_table() {
         let out = render_servers(&artifact());
         let data = chart_data(&out, "lsp-memory");
         assert_eq!(data.as_array().unwrap().len(), 6);
@@ -797,7 +794,10 @@ mod tests {
         assert_eq!(data[0]["metric"], "Baseline");
         assert_eq!(data[0]["value"], 96.1);
         assert!(out.contains("<summary>Memory data</summary>"), "{out}");
-        assert!(!out.contains("<details open"), "{out}");
+        assert!(
+            out.contains("<details class=\"bench-table\" open>"),
+            "{out}"
+        );
         assert!(
             out.contains("| Fatou | 96 MB | 100 MB | 100 MB | baseline |"),
             "{out}"
