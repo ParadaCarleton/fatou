@@ -24,6 +24,8 @@
 //! Recognition requires a preceding, visible file-local Test import and honors
 //! aliases and shadowing. Other macros retain the ordinary argument traversal;
 //! the model never evaluates Julia or expands arbitrary macros.
+//! Macro definitions bind Julia's implicit `__source__` and `__module__`
+//! parameters locally, including in closures nested in the macro body.
 
 pub mod binding;
 pub mod builder;
@@ -237,7 +239,7 @@ impl SemanticModel {
     pub fn binding_at(&self, offset: TextSize) -> Option<BindingId> {
         self.bindings
             .iter()
-            .position(|b| b.def_range.contains_inclusive(offset))
+            .position(|b| !b.def_range.is_empty() && b.def_range.contains_inclusive(offset))
             .map(|i| BindingId(i as u32))
     }
 
@@ -248,7 +250,7 @@ impl SemanticModel {
             .find(|i| i.range.contains_inclusive(offset))
     }
 
-    /// Every occurrence of `binding`: the definition site, then each
+    /// Every occurrence of `binding`: its explicit definition site, if any, then each
     /// resolved identifier, in source order of the identifiers.
     pub fn occurrences(&self, binding: BindingId) -> impl Iterator<Item = Occurrence> + '_ {
         let def = Occurrence {
@@ -256,16 +258,18 @@ impl SemanticModel {
             access: Access::Write,
             is_def: true,
         };
-        std::iter::once(def).chain(
-            self.idents
-                .iter()
-                .filter(move |i| i.binding == Some(binding))
-                .map(|i| Occurrence {
-                    range: i.range,
-                    access: i.access,
-                    is_def: false,
-                }),
-        )
+        std::iter::once(def)
+            .filter(|def| !def.range.is_empty())
+            .chain(
+                self.idents
+                    .iter()
+                    .filter(move |i| i.binding == Some(binding))
+                    .map(|i| Occurrence {
+                        range: i.range,
+                        access: i.access,
+                        is_def: false,
+                    }),
+            )
     }
 
     /// The reads that no binding in this file satisfies, in source order.
@@ -767,6 +771,27 @@ mod tests {
         assert!(m.binding(find(&m, "m")).read);
         let call = m.idents().iter().find(|i| i.is_macro).unwrap();
         assert_eq!(call.binding, Some(find(&m, "m")));
+    }
+
+    #[test]
+    fn macro_implicit_arguments_resolve_in_the_macro_and_closures() {
+        let m = model_of(concat!(
+            "macro m(ex)\n",
+            "    f() = (__source__, __module__, ex)\n",
+            "    (__source__, __module__, f())\n",
+            "end\n",
+        ));
+        assert!(free_read_names(&m).is_empty());
+        for name in ["__source__", "__module__"] {
+            let bid = find(&m, name);
+            let binding = m.binding(bid);
+            assert_eq!(binding.kind, BindingKind::Param);
+            assert!(binding.read);
+            assert_eq!(
+                m.idents().iter().filter(|i| i.binding == Some(bid)).count(),
+                2
+            );
+        }
     }
 
     #[test]

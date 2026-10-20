@@ -430,6 +430,9 @@ fn binding_locations(
     encoding: PositionEncoding,
 ) -> Vec<Location> {
     let binding = model.binding(bid);
+    if binding.def_range.is_empty() {
+        return Vec::new();
+    }
     let mut ranges = vec![binding.def_range];
     if matches!(binding.kind, BindingKind::Function | BindingKind::Macro) {
         ranges.extend(

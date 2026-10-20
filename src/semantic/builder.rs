@@ -2000,6 +2000,13 @@ impl Builder {
             .and_then(|sig| sig.children().next());
         let body = body_of(node);
         let fn_scope = self.push_scope(ScopeKind::Function, Some(scope), node.text_range());
+        if node.kind() == SyntaxKind::MACRO_DEF {
+            // Julia passes these arguments before the macro's explicit parameters.
+            let range = TextRange::empty(node.text_range().start());
+            for name in ["__source__", "__module__"] {
+                self.push_binding(name, BindingKind::Param, fn_scope, range);
+            }
+        }
         if let Some(start) = signature {
             self.walk_signature(start, scope, fn_scope);
         }

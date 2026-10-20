@@ -321,7 +321,7 @@ fn resolved_spans<P: PackageSource + ?Sized>(
     // Definition sites: the name in `function f`, `macro m`, `struct S`,
     // `module M`. Bindings are not occurrences, so they need their own pass.
     for binding in model.bindings() {
-        if !is_identifier_shaped(&binding.name) {
+        if binding.def_range.is_empty() || !is_identifier_shaped(&binding.name) {
             continue;
         }
         if let Some(kind) = classify_binding(binding.kind) {

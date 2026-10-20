@@ -206,7 +206,11 @@ fn identifier_range_at(model: &SemanticModel, offset: TextSize) -> Option<TextRa
 /// binding, so it yields `None`.
 fn binding_and_range_at(model: &SemanticModel, offset: TextSize) -> Option<(BindingId, TextRange)> {
     if let Some(ident) = model.ident_at(offset) {
-        return ident.binding.map(|b| (b, ident.range));
+        // Renaming an implicit parameter cannot change the argument Julia supplies.
+        return ident
+            .binding
+            .filter(|&b| !model.binding(b).def_range.is_empty())
+            .map(|b| (b, ident.range));
     }
     let bid = model.binding_at(offset)?;
     Some((bid, model.binding(bid).def_range))

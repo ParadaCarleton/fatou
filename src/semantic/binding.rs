@@ -60,6 +60,7 @@ pub struct Binding {
     /// The scope the binding lives in.
     pub scope: ScopeId,
     /// The defining identifier token's range (the first introduction site).
+    /// Empty for implicit macro parameters, which have no source declaration.
     pub def_range: TextRange,
     /// Whether any resolved identifier reads this binding.
     pub read: bool,

@@ -65,6 +65,39 @@ fn native_file_uri(path: &str) -> Uri {
 }
 
 #[test]
+fn macro_implicit_arguments_have_references_but_no_declaration_or_rename() {
+    use fatou::index::PackageIndex;
+    use fatou::lsp::{
+        compute_definition, compute_prepare_rename, compute_references, compute_rename,
+    };
+    use std::{collections::BTreeMap, sync::Arc};
+
+    let uri = native_file_uri("/work/macro.jl");
+    let encoding = PositionEncoding::Utf16;
+    let library: BTreeMap<String, Arc<PackageIndex>> = BTreeMap::new();
+    for name in ["__source__", "__module__"] {
+        let text = format!("macro m()\n    {name}\n    () -> {name}\nend\n");
+        let position = Position::new(1, 4);
+        assert!(compute_definition(&uri, &text, position, encoding, &library).is_empty());
+        assert!(compute_prepare_rename(&text, position, encoding).is_none());
+        assert!(
+            compute_rename(&uri, &text, position, "renamed", encoding)
+                .unwrap()
+                .is_none()
+        );
+        for include_declaration in [false, true] {
+            let references =
+                compute_references(&uri, &text, position, encoding, include_declaration).unwrap();
+            assert_eq!(references.len(), 2, "{references:?}");
+            assert_eq!(references[0].range.start, position);
+            assert_eq!(references[1].range.start, Position::new(2, 10));
+        }
+        let shadow = format!("macro m()\n    f({name}) = {name}\nend\n");
+        assert!(compute_prepare_rename(&shadow, Position::new(1, 6), encoding).is_some());
+    }
+}
+
+#[test]
 fn initialize_format_and_shutdown() {
     let (server, client) = Connection::memory();
     let server_thread = std::thread::spawn(move || {

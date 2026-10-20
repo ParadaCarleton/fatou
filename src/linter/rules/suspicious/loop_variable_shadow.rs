@@ -1,22 +1,16 @@
 //! `loop-variable-shadow`: a `for` loop whose index variable is already an
-//! enclosing `for` loop's index, and an assignment to a loop variable inside
-//! its own loop.
+//! enclosing `for` loop's index.
 //!
-//! Both shapes are legal Julia that reads as something it is not. A nested
-//! `for i in ...` inside `for i in ...` binds a *fresh* variable, so the outer
-//! index is unreachable for the rest of the inner loop — code below the inner
+//! A nested `for i in ...` inside `for i in ...` binds a *fresh* variable, so
+//! the outer index is unreachable for the rest of the inner loop — code below the inner
 //! loop still sees the outer one, which is exactly the confusion the shape
 //! invites. The usual cause is a copy-pasted inner loop whose index was never
-//! renamed. Assigning to a loop variable is the mirror image: `for` rebinds
-//! the variable from the iterator on every pass, so the assignment is
-//! discarded at the next iteration and can never influence the iteration
-//! itself.
+//! renamed.
 //!
-//! Both questions are pure scope questions the semantic model already answers,
+//! This is a pure scope question the semantic model already answers,
 //! so this is a whole-file pass over the bindings rather than a node-shape
 //! rule: every [`BindingKind::ForVar`] in a [`ScopeKind::For`] scope is asked
-//! whether an enclosing loop scope binds the same name, and whether any of its
-//! occurrences writes it.
+//! whether an enclosing loop scope binds the same name.
 //!
 //! Scope of the shadow check:
 //!
@@ -37,21 +31,17 @@
 //! - The clause list of a single `for` chains loop scopes, so `for i in a, i
 //!   in b` is reported by the same walk — the second clause shadows the first.
 //!
-//! Scope of the assignment check: every write and read-write occurrence of a
-//! loop variable, wherever it sits (a closure inside the body writes the
-//! captured loop variable and is discarded just the same). Note that
-//! `for x in xs; x = f(x); ...` — rebinding the element to a normalized form
-//! for the rest of the iteration — is a working idiom that this check reports
-//! too; it is reported because it is indistinguishable from `i += 1`, the
-//! attempt to steer the iteration that the check exists for.
+//! Assignments to a loop variable are allowed: normalization and other updates
+//! can intentionally change the value used later in the same iteration.
+//! Whether an assigned value is discarded unread requires liveness analysis,
+//! not a scope-only check.
 //!
 //! No fix: renaming the inner index means rewriting every reference to it in
-//! the loop, and dropping an assignment to a loop variable changes what the
-//! body computes. Both are decisions, not tight lossless edits.
+//! the loop, and the intended binding is unknown.
 
 use crate::linter::diagnostic::Diagnostic;
 use crate::linter::rules::{Example, Rule, RuleContext};
-use crate::semantic::{Access, Binding, BindingId, BindingKind, ScopeId, ScopeKind, SemanticModel};
+use crate::semantic::{Binding, BindingId, BindingKind, ScopeId, ScopeKind, SemanticModel};
 
 pub struct LoopVariableShadow;
 
@@ -62,37 +52,28 @@ impl Rule for LoopVariableShadow {
 
     fn description(&self) -> &'static str {
         "Flag a `for` loop whose index variable is already an enclosing `for` \
-         loop's index, and an assignment to a loop variable inside its own \
-         loop. The nested `for` binds a fresh variable, so the outer index is \
-         unreachable inside it — usually a copy-pasted inner loop whose index \
-         was never renamed. An assignment to a loop variable is discarded at \
-         the next iteration, since `for` rebinds the variable from the \
-         iterator on every pass, so it can never steer the iteration. \
+         loop's index. The nested `for` binds a fresh variable, so the outer \
+         index is unreachable inside it — usually a copy-pasted inner loop whose index \
+         was never renamed. Assignments to loop variables are allowed, since \
+         normalization and other updates within an iteration are valid. \
          Comprehension and generator clauses are left alone, as is reuse \
          across a function body, a closure, or a `do` block. No fix: renaming \
-         an index or dropping an assignment changes what the body computes."
+         an index requires choosing the intended binding."
     }
 
     fn examples(&self) -> &'static [Example] {
-        &[
-            Example {
-                caption: "A nested loop reusing the enclosing loop's index:",
-                source: "for i in 1:3\n    for i in 1:2\n        println(i)\n    end\nend\n",
-            },
-            Example {
-                caption: "An assignment the next iteration discards:",
-                source: "for i in 1:10\n    if isodd(i)\n        i += 1\n    end\n    println(i)\nend\n",
-            },
-        ]
+        &[Example {
+            caption: "A nested loop reusing the enclosing loop's index:",
+            source: "for i in 1:3\n    for i in 1:2\n        println(i)\n    end\nend\n",
+        }]
     }
 
     fn check_file(&self, ctx: &RuleContext<'_>, sink: &mut Vec<Diagnostic>) {
         let model = ctx.model;
-        for (index, binding) in model.bindings().iter().enumerate() {
+        for binding in model.bindings() {
             if !is_loop_variable(model, binding) {
                 continue;
             }
-            let id = BindingId(index as u32);
 
             if let Some(outer) = enclosing_loop_variable(model, binding) {
                 sink.push(Diagnostic::new(
@@ -101,22 +82,6 @@ impl Rule for LoopVariableShadow {
                     format!(
                         "loop variable `{}` shadows the enclosing loop's variable",
                         model.binding(outer).name
-                    ),
-                ));
-            }
-
-            for occurrence in model.occurrences(id) {
-                if occurrence.is_def
-                    || !matches!(occurrence.access, Access::Write | Access::ReadWrite)
-                {
-                    continue;
-                }
-                sink.push(Diagnostic::new(
-                    self.id(),
-                    occurrence.range,
-                    format!(
-                        "assignment to loop variable `{}` is discarded at the next iteration",
-                        binding.name
                     ),
                 ));
             }

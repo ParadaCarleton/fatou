@@ -62,7 +62,7 @@ impl Rule for UnusedArgument {
 
     fn check_file(&self, ctx: &RuleContext<'_>, sink: &mut Vec<Diagnostic>) {
         for binding in ctx.model.bindings() {
-            if binding.read {
+            if binding.read || binding.def_range.is_empty() {
                 continue;
             }
             if !matches!(binding.kind, BindingKind::Param | BindingKind::KeywordParam) {

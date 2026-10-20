@@ -986,6 +986,16 @@ fn duplicate_keyword_argument_skips_quoted_and_macro_code() {
 // --- unused-argument -------------------------------------------------------
 
 #[test]
+fn unused_argument_skips_implicit_macro_parameters() {
+    let msgs = findings(
+        "unused-argument",
+        "macro m(ex, unused)\n    return ex + 1\nend\n",
+    );
+    assert_eq!(msgs.len(), 1, "{msgs:?}");
+    assert!(msgs[0].contains("`unused`"), "{msgs:?}");
+}
+
+#[test]
 fn unused_argument_flags_unread_positional() {
     // `factor` is never read; the body is not a lone literal.
     assert_eq!(
@@ -4531,47 +4541,58 @@ fn loop_variable_shadow_flags_destructured_reuse() {
 }
 
 #[test]
-fn loop_variable_shadow_flags_assignment_to_the_loop_variable() {
+fn loop_variable_shadow_ignores_assignment_to_the_loop_variable() {
     assert_eq!(
         count(
             "loop-variable-shadow",
             "for i in 1:3\n    i = 0\n    f(i)\nend\n"
         ),
-        1
+        0
     );
 }
 
 #[test]
-fn loop_variable_shadow_flags_augmented_assignment() {
+fn loop_variable_shadow_ignores_augmented_assignment() {
     assert_eq!(
         count(
             "loop-variable-shadow",
             "for i in 1:3\n    i += 1\n    f(i)\nend\n"
         ),
-        1
+        0
     );
 }
 
 #[test]
-fn loop_variable_shadow_flags_assignment_to_a_destructured_variable() {
+fn loop_variable_shadow_ignores_assignment_to_a_destructured_variable() {
     assert_eq!(
         count(
             "loop-variable-shadow",
             "for (k, v) in d\n    v = 0\n    f(k, v)\nend\n"
         ),
-        1
+        0
     );
 }
 
 #[test]
-fn loop_variable_shadow_reports_both_defects_independently() {
+fn loop_variable_shadow_reports_only_shadowing_when_the_body_reassigns() {
     assert_eq!(
         count(
             "loop-variable-shadow",
             "for i in 1:3\n    for i in 1:2\n        i = 0\n        f(i)\n    end\nend\n"
         ),
-        2
+        1
     );
+}
+
+#[test]
+fn loop_variable_shadow_ignores_normalization_and_captured_assignments() {
+    for src in [
+        "function normalized(pairs)\n    out = Symbol[]\n    for (leaf, v) ∈ pairs\n        leaf = Symbol(leaf)\n        v > 0 && push!(out, leaf)\n    end\n    return out\nend\n",
+        "for i in 1:3\n    update() = (i += 1)\n    update()\n    f(i)\nend\n",
+        "for i in 1:3\n    i = 0\nend\n",
+    ] {
+        assert_eq!(count("loop-variable-shadow", src), 0, "{src}");
+    }
 }
 
 #[test]

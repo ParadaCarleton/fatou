@@ -139,6 +139,19 @@ style remains project policy rather than language correctness.
 
 ### Rules
 
+- [ ] Detect dead assignments with control-flow-aware liveness analysis,
+  separately from `unused-binding` and `loop-variable-shadow`. Report only
+  when an assigned value cannot be read before it is overwritten or leaves
+  scope, including when the next loop iteration rebinds it. Keep valid
+  within-iteration normalization quiet, and handle closures and macros
+  conservatively. Any fix must preserve right-hand-side side effects.
+
+- [x] Bind the implicit `__source__` and `__module__` macro parameters in the
+  semantic model, including closure captures. `undefined-name` no longer
+  reports these valid reads, while reads outside macros still require a
+  definition. Implicit parameters have no source declaration and cannot be
+  renamed.
+
 - [x] Preserve dispatch types inside `@nospecialize` parameter annotations in
   the shared signature harvester, including qualified Base/Core spellings,
   defaults, and varargs. Distinct dispatch types no longer trigger

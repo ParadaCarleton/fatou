@@ -71,6 +71,35 @@ fn script_entries_enable_undefined_names_by_default() {
 }
 
 #[test]
+fn macro_implicit_arguments_are_local_to_the_macro() {
+    let dir = project(&["main.jl"]);
+    write(
+        dir.path(),
+        "main.jl",
+        concat!(
+            "macro where_am_i()\n",
+            "    f = string(__source__.file)\n",
+            "    owner() = __module__\n",
+            "    return (f, owner(), macro_typo)\n",
+            "end\n",
+            "outside() = (__source__, __module__)\n",
+        ),
+    );
+    let findings = lint(dir.path(), &["main.jl"]);
+    assert_eq!(findings.len(), 3, "{findings:#?}");
+    for name in ["macro_typo", "__source__", "__module__"] {
+        assert_eq!(
+            findings
+                .iter()
+                .filter(|d| d.to_string().contains(&format!("`{name}`")))
+                .count(),
+            1,
+            "{findings:#?}"
+        );
+    }
+}
+
+#[test]
 fn script_failed_includes_report_errors_without_cascading_name_warnings() {
     let dir = project(&["main.jl", "good.jl"]);
     write(
