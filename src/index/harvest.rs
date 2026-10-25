@@ -963,6 +963,7 @@ fn param_from_pattern(node: &SyntaxNode) -> Param {
             let mut param = pattern.as_ref().map(param_from_pattern).unwrap_or_default();
             param.type_annotation = types.first().map(lower_type);
             param.is_opaque |= types.iter().any(contains_macro);
+            param.is_vararg |= param.type_annotation.as_ref().is_some_and(is_vararg_type);
             param
         }
         SyntaxKind::SPLAT_EXPR => {
@@ -989,6 +990,16 @@ fn param_from_pattern(node: &SyntaxNode) -> Param {
             is_opaque: contains_macro(node),
             ..Param::default()
         },
+    }
+}
+
+/// Whether `ty` is `Vararg` or `Vararg{...}`: `I::Vararg{Any,N}` takes any number of
+/// arguments, like `I...`. A literal count (`Vararg{Int,2}`) is also read as unbounded.
+fn is_vararg_type(ty: &TypeExpr) -> bool {
+    match ty {
+        TypeExpr::Name { path } => path.last().is_some_and(|name| name == "Vararg"),
+        TypeExpr::Applied { base, .. } => is_vararg_type(base),
+        _ => false,
     }
 }
 
@@ -1345,6 +1356,21 @@ mod tests {
             &method.where_clauses[0],
             TypeExpr::TypeVar { name, upper: Some(_), .. } if name == "T"
         ));
+    }
+
+    #[test]
+    fn vararg_annotation_is_a_vararg_param() {
+        for annotation in ["Vararg", "Vararg{Any}", "Vararg{Any,M}", "Core.Vararg{Int}"] {
+            let m = harvest_str(&format!("f(A, I::{annotation}) = A"), "Pkg");
+            let params = &m.functions[0].methods[0].params;
+            assert!(!params[0].is_vararg, "A is one argument");
+            assert!(params[1].is_vararg, "I::{annotation} takes any number");
+        }
+        let m = harvest_str("f(A, I::Tuple{Vararg{Int}}) = A", "Pkg");
+        assert!(
+            !m.functions[0].methods[0].params[1].is_vararg,
+            "a tuple of varargs is one argument"
+        );
     }
 
     #[test]
